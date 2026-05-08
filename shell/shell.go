@@ -51,6 +51,8 @@ func NewShell(client *minio.Client) *Shell {
 		"pwd":   &PwdCommand{},
 		"ls":    &LsCommand{},
 		"list":  &LsCommand{}, // list 作为 ls 的别名
+		"stat":  &StatCommand{},
+		"cat":   &CatCommand{},
 		"get":   &GetCommand{},
 		"put":   &PutCommand{},
 		"lls":   &LlsCommand{},
@@ -230,6 +232,58 @@ func (c *LsCommand) Execute(session *Session, args []string) error {
 	return nil
 }
 
+// StatCommand 查询对象元数据
+type StatCommand struct{}
+
+func (c *StatCommand) Name() string { return "stat" }
+func (c *StatCommand) Help() string {
+	return "stat <object> - 查询对象元数据"
+}
+func (c *StatCommand) Execute(session *Session, args []string) error {
+	if session.bucket == "" {
+		return fmt.Errorf("请先使用 'use' 命令选择 bucket")
+	}
+	if len(args) != 1 {
+		return fmt.Errorf("用法: stat <object>")
+	}
+
+	objectName := args[0]
+	// 如果不是完整路径，拼接当前 prefix
+	if !strings.Contains(objectName, "/") && session.prefix != "" {
+		objectName = session.prefix + objectName
+	}
+
+	stater := operations.NewStater(session.client)
+	stater.Stat(context.Background(), session.bucket, objectName)
+	return nil
+}
+
+// CatCommand 输出对象内容
+type CatCommand struct{}
+
+func (c *CatCommand) Name() string { return "cat" }
+func (c *CatCommand) Help() string {
+	return "cat <object> - 输出对象内容到标准输出"
+}
+func (c *CatCommand) Execute(session *Session, args []string) error {
+	if session.bucket == "" {
+		return fmt.Errorf("请先使用 'use' 命令选择 bucket")
+	}
+	if len(args) != 1 {
+		return fmt.Errorf("用法: cat <object>")
+	}
+
+	objectName := args[0]
+	// 如果不是完整路径，拼接当前 prefix
+	if !strings.Contains(objectName, "/") && session.prefix != "" {
+		objectName = session.prefix + objectName
+	}
+
+	catter := operations.NewCatter(session.client)
+	catter.Cat(context.Background(), session.bucket, objectName)
+	return nil
+}
+
 // GetCommand 下载对象
 type GetCommand struct{}
 
@@ -405,7 +459,9 @@ func (c *HelpCommand) Execute(session *Session, args []string) error {
 	fmt.Println("  use <bucket>      切换 bucket")
 	fmt.Println("  cd <prefix>       切换远程目录 (支持 .. 和 /)")
 	fmt.Println("  pwd               显示当前远程路径")
-	fmt.Println("  ls, list [-r]      列出对象 (-r 递归)")
+	fmt.Println("  ls, list [-r]     列出对象 (-r 递归)")
+	fmt.Println("  stat <object>     查询对象元数据")
+	fmt.Println("  cat <object>      输出对象内容")
 	fmt.Println("  get <object>      下载对象")
 	fmt.Println("  put <file> [name] 上传文件")
 	fmt.Println("  lls [path]        列出本地目录")
