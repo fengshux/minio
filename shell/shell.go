@@ -50,6 +50,7 @@ func NewShell(client *minio.Client) *Shell {
 		"cd":    &CdCommand{},
 		"pwd":   &PwdCommand{},
 		"ls":    &LsCommand{},
+		"list":  &LsCommand{}, // list 作为 ls 的别名
 		"get":   &GetCommand{},
 		"put":   &PutCommand{},
 		"lls":   &LlsCommand{},
@@ -404,7 +405,7 @@ func (c *HelpCommand) Execute(session *Session, args []string) error {
 	fmt.Println("  use <bucket>      切换 bucket")
 	fmt.Println("  cd <prefix>       切换远程目录 (支持 .. 和 /)")
 	fmt.Println("  pwd               显示当前远程路径")
-	fmt.Println("  ls [-r]           列出对象 (-r 递归)")
+	fmt.Println("  ls, list [-r]      列出对象 (-r 递归)")
 	fmt.Println("  get <object>      下载对象")
 	fmt.Println("  put <file> [name] 上传文件")
 	fmt.Println("  lls [path]        列出本地目录")

@@ -48,7 +48,7 @@ secretkey=your-secret-key
 | `use <bucket>` | 切换当前 bucket | `use my-bucket` |
 | `cd <prefix>` | 切换当前 prefix，支持 `..` 和 `/` | `cd photos/`, `cd ..`, `cd /` |
 | `pwd` | 显示当前远程路径 | `pwd` |
-| `ls [-r]` | 列出当前 prefix 下的对象 | `ls`, `ls -r` |
+| `ls`, `list [-r]` | 列出当前 prefix 下的对象 | `ls`, `list`, `ls -r`, `list -r` |
 | `get <object>` | 下载对象到本地当前目录 | `get file.txt` |
 | `put <file> [name]` | 上传本地文件到当前 prefix | `put ./local.txt`, `put ./local.txt remote.txt` |
 | `lls [path]` | 列出本地目录内容 | `lls`, `lls /tmp` |
