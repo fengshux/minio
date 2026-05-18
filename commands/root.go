@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/spf13/cobra"
@@ -67,6 +68,7 @@ func NewRootCmd() *cobra.Command {
 		NewStatCmd(),
 		NewGetCmd(),
 		NewCatCmd(),
+		NewSignCmd(),
 	)
 
 	return rootCmd
@@ -219,5 +221,36 @@ func NewPutCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&contentType, "type", "t", "", "Content-Type（默认: 自动检测）")
+	return cmd
+}
+
+// NewSignCmd 创建 sign 子命令
+func NewSignCmd() *cobra.Command {
+	var expire time.Duration
+	cmd := &cobra.Command{
+		Use:   "sign bucket object",
+		Short: "生成带签名的下载链接",
+		Long: `为指定对象生成带签名的 HTTP 下载链接
+
+参数:
+  bucket  存储桶名称
+  object  对象名称（完整路径）
+
+选项:
+  -e, --expire  链接有效期（默认: 168h 即 7 天）
+
+示例:
+  minio sign my-bucket file.txt
+  minio sign my-bucket photos/image.jpg -e 24h
+  minio sign my-bucket data.zip -e 1h`,
+		Args: cobra.ExactArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			bucket := args[0]
+			objectName := args[1]
+			signer := operations.NewSigner(client)
+			signer.Sign(cmd.Context(), bucket, objectName, expire)
+		},
+	}
+	cmd.Flags().DurationVarP(&expire, "expire", "e", 7*24*time.Hour, "链接有效期（如: 1h, 24h, 168h）")
 	return cmd
 }

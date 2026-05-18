@@ -53,6 +53,7 @@ secretkey=your-secret-key
 | `cat <object>` | 输出对象内容到标准输出 | `cat logs/app.log` |
 | `get <object>` | 下载对象到本地当前目录 | `get file.txt` |
 | `put <file> [name]` | 上传本地文件到当前 prefix | `put ./local.txt`, `put ./local.txt remote.txt` |
+| `sign <object> [expire]` | 生成签名下载链接 | `sign file.txt`, `sign file.txt 24h` |
 | `lls [path]` | 列出本地目录内容 | `lls`, `lls /tmp` |
 | `lcd <path>` | 切换本地工作目录 | `lcd /tmp` |
 | `lpwd` | 显示当前本地工作目录 | `lpwd` |
@@ -123,6 +124,14 @@ minio put bucket object local-file   # 上传文件
 minio put bucket data.json ./data.json -t application/json  # 指定 Content-Type
 ```
 
+#### 生成签名下载链接
+
+```bash
+minio sign bucket object              # 生成签名链接（默认 7 天有效）
+minio sign bucket object -e 24h       # 指定 24 小时有效
+minio sign bucket object -e 1h        # 指定 1 小时有效
+```
+
 ## 项目结构
 
 ```
@@ -137,7 +146,8 @@ minio/
 │   ├── stat.go       # 查询元数据
 │   ├── get.go        # 下载对象
 │   ├── cat.go        # 输出内容
-│   └── put.go        # 上传文件
+│   ├── put.go        # 上传文件
+│   └── presign.go    # 生成签名 URL
 ├── shell/
 │   └── shell.go      # 交互式 Shell 实现
 └── spec.md           # 交互模式设计文档

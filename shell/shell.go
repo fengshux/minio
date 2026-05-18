@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 	"minio/operations"
@@ -55,6 +56,7 @@ func NewShell(client *minio.Client) *Shell {
 		"cat":   &CatCommand{},
 		"get":   &GetCommand{},
 		"put":   &PutCommand{},
+		"sign":  &SignCommand{},
 		"lls":   &LlsCommand{},
 		"lcd":   &LcdCommand{},
 		"lpwd":  &LpwdCommand{},
@@ -464,11 +466,47 @@ func (c *HelpCommand) Execute(session *Session, args []string) error {
 	fmt.Println("  cat <object>      输出对象内容")
 	fmt.Println("  get <object>      下载对象")
 	fmt.Println("  put <file> [name] 上传文件")
+	fmt.Println("  sign <object>     生成签名下载链接")
 	fmt.Println("  lls [path]        列出本地目录")
 	fmt.Println("  lcd <path>        切换本地目录")
 	fmt.Println("  lpwd              显示本地工作目录")
 	fmt.Println("  clear             清屏")
 	fmt.Println("  help              显示帮助")
 	fmt.Println("  exit              退出")
+	return nil
+}
+
+// SignCommand 生成签名 URL
+type SignCommand struct{}
+
+func (c *SignCommand) Name() string { return "sign" }
+func (c *SignCommand) Help() string {
+	return "sign <object> [expire] - 生成签名下载链接 (expire 如: 1h, 24h, 7d)"
+}
+func (c *SignCommand) Execute(session *Session, args []string) error {
+	if session.bucket == "" {
+		return fmt.Errorf("请先使用 'use' 命令选择 bucket")
+	}
+	if len(args) < 1 {
+		return fmt.Errorf("用法: sign <object> [expire]")
+	}
+
+	objectName := args[0]
+	// 如果不是完整路径，拼接当前 prefix
+	if !strings.Contains(objectName, "/") && session.prefix != "" {
+		objectName = session.prefix + objectName
+	}
+
+	expire := 7 * 24 * time.Hour // 默认 7 天
+	if len(args) > 1 {
+		d, err := time.ParseDuration(args[1])
+		if err != nil {
+			return fmt.Errorf("无效的时间格式: %v (支持: 1h, 24h, 7d 等)", err)
+		}
+		expire = d
+	}
+
+	signer := operations.NewSigner(session.client)
+	signer.Sign(context.Background(), session.bucket, objectName, expire)
 	return nil
 }
