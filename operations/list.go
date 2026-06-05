@@ -33,7 +33,7 @@ func (l *Lister) List(ctx context.Context, bucketName, prefix string, recursive 
 		fmt.Printf("对象: %s\n  大小: %.2f MB\n  最后修改: %s\n  ETag: %s\n",
 			object.Key,
 			float64(object.Size)/1024/1024,
-			object.LastModified.Format("2006-01-02 15:04:05"),
+			object.LastModified.Local().Format("2006-01-02 15:04:05"),
 			object.ETag,
 		)
 	}
