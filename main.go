@@ -17,7 +17,7 @@ func main() {
 
 // init 初始化包，设置命令包的回调函数
 func init() {
-	commands.InitClient = func(configPath string) (*commands.ClientWrapper, error) {
+	commands.InitClient = func(configPath string, debug bool) (*commands.ClientWrapper, error) {
 		cfg, err := LoadConfig(configPath)
 		if err != nil {
 			return nil, err
@@ -27,7 +27,7 @@ func init() {
 			return nil, err
 		}
 
-		client, err := NewClient(cfg)
+		client, err := NewClient(cfg, debug)
 		if err != nil {
 			return nil, fmt.Errorf("初始化客户端失败: %w", err)
 		}

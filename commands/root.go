@@ -13,6 +13,7 @@ import (
 
 var (
 	configPath string
+	debug      bool
 	client     *minio.Client
 )
 
@@ -22,7 +23,7 @@ type ClientWrapper struct {
 }
 
 // InitClient 由 main 包设置的初始化客户端回调函数
-var InitClient func(configPath string) (*ClientWrapper, error)
+var InitClient func(configPath string, debug bool) (*ClientWrapper, error)
 
 // NewRootCmd 创建根命令
 func NewRootCmd() *cobra.Command {
@@ -42,7 +43,7 @@ func NewRootCmd() *cobra.Command {
     accesskey=<access-key>
     secretkey=<secret-key>`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			wrapper, err := InitClient(configPath)
+			wrapper, err := InitClient(configPath, debug)
 			if err != nil {
 				return err
 			}
@@ -60,6 +61,7 @@ func NewRootCmd() *cobra.Command {
 	}
 
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "配置文件路径（默认: ./minio.conf, ~/.config/minio/minio.conf, /etc/minio/minio.conf）")
+	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "启用 HTTP 请求调试输出")
 
 	// 添加子命令
 	rootCmd.AddCommand(
@@ -69,6 +71,7 @@ func NewRootCmd() *cobra.Command {
 		NewGetCmd(),
 		NewCatCmd(),
 		NewSignCmd(),
+		NewCopyCmd(),
 	)
 
 	return rootCmd
@@ -253,4 +256,32 @@ func NewSignCmd() *cobra.Command {
 	}
 	cmd.Flags().DurationVarP(&expire, "expire", "e", 7*24*time.Hour, "链接有效期（如: 1h, 24h, 168h）")
 	return cmd
+}
+
+// NewCopyCmd 创建 copy 子命令
+func NewCopyCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "copy src-bucket src-object dest-bucket dest-object",
+		Short: "复制对象",
+		Long: `将对象从一个位置复制到另一个位置，支持跨存储桶复制
+
+参数:
+  src-bucket   源存储桶名称
+  src-object   源对象名称（完整路径）
+  dest-bucket  目标存储桶名称
+  dest-object  目标对象名称（完整路径）
+
+示例:
+  minio copy my-bucket file.txt my-bucket copy.txt
+  minio copy bucket1 photos/image.jpg bucket2 backup/image.jpg`,
+		Args: cobra.ExactArgs(4),
+		Run: func(cmd *cobra.Command, args []string) {
+			srcBucket := args[0]
+			srcObject := args[1]
+			destBucket := args[2]
+			destObject := args[3]
+			copier := operations.NewCopier(client)
+			copier.Copy(cmd.Context(), srcBucket, srcObject, destBucket, destObject)
+		},
+	}
 }
