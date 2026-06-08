@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"minio/crypto"
 )
 
 // Config MinIO 客户端配置
@@ -25,8 +27,6 @@ var configPaths = []string{
 }
 
 // LoadConfig 从配置文件加载配置
-// 如果指定了 configPath，则只从该路径读取
-// 否则按优先级依次查找配置文件
 func LoadConfig(configPath string) (*Config, error) {
 	var paths []string
 	if configPath != "" {
@@ -45,7 +45,7 @@ func LoadConfig(configPath string) (*Config, error) {
 		}
 	}
 
-	return nil, errors.New("未找到配置文件，请创建 minio.conf 或使用 --config 指定配置文件路径")
+	return nil, errors.New("未找到配置文件，请使用 'minio config set' 创建配置")
 }
 
 // expandPath 展开 ~ 为用户主目录
@@ -66,6 +66,8 @@ func parseConfigFile(path string) (*Config, error) {
 	defer file.Close()
 
 	cfg := &Config{UseSSL: true}
+	var accesskeyEnc, secretkeyEnc string
+
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -85,14 +87,36 @@ func parseConfigFile(path string) (*Config, error) {
 		case "endpoint":
 			cfg.Endpoint = value
 		case "accesskey":
-			cfg.AccessKey = value
+			accesskeyEnc = value
 		case "secretkey":
-			cfg.SecretKey = value
+			secretkeyEnc = value
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
 		return nil, err
+	}
+
+	// 处理加密字段
+	if crypto.IsEncrypted(accesskeyEnc) && crypto.IsEncrypted(secretkeyEnc) {
+		accesskeyCipher := accesskeyEnc[8:]
+		secretkeyCipher := secretkeyEnc[8:]
+
+		accesskey, err := crypto.Decrypt(accesskeyCipher)
+		if err != nil {
+			return nil, fmt.Errorf("解密失败: %w（配置可能在本机以外的机器创建）", err)
+		}
+
+		secretkey, err := crypto.Decrypt(secretkeyCipher)
+		if err != nil {
+			return nil, fmt.Errorf("解密失败: %w（配置可能在本机以外的机器创建）", err)
+		}
+
+		cfg.AccessKey = accesskey
+		cfg.SecretKey = secretkey
+	} else {
+		cfg.AccessKey = accesskeyEnc
+		cfg.SecretKey = secretkeyEnc
 	}
 
 	return cfg, nil

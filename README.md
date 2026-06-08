@@ -6,6 +6,7 @@
 
 - **命令行模式**: 单次执行操作，适合脚本和自动化
 - **交互模式**: 类似 FTP/SFTP 的交互式 Shell，适合日常操作
+- **加密存储**: 敏感信息（accesskey、secretkey）加密存储，更安全
 - **多配置支持**: 支持多个配置文件路径优先级查找
 
 ## 安装
@@ -16,7 +17,34 @@ go build -o minio
 
 ## 配置
 
-配置文件格式 (`minio.conf`):
+### 推荐方式：使用 config 命令（加密存储）
+
+```bash
+minio config set
+```
+
+交互式输入：
+- Endpoint: S3 服务端点
+- AccessKey: 访问密钥（加密存储）
+- SecretKey: 密钥（加密存储）
+
+配置文件保存到 `~/.config/minio/minio.conf`，格式如下：
+
+```ini
+endpoint=s3-internal.cn-north-1-bjps.jdcloud-oss.com
+accesskey=enc:aes:加密后的密文
+secretkey=enc:aes:加密后的密文
+```
+
+### 配置管理命令
+
+```bash
+minio config set    # 设置配置（加密存储）
+minio config show   # 查看配置（解密显示）
+```
+
+
+### 传统方式：手动创建配置文件（明文）
 
 ```ini
 endpoint=s3-internal.cn-north-1-bjps.jdcloud-oss.com
@@ -24,7 +52,9 @@ accesskey=your-access-key
 secretkey=your-secret-key
 ```
 
-配置文件查找优先级:
+**注意**: 明文配置不推荐，建议使用 `minio config set` 加密存储。
+
+### 配置文件查找优先级
 
 1. `--config` 参数指定的路径
 2. 当前目录 `./minio.conf`
@@ -132,21 +162,40 @@ minio sign bucket object -e 24h       # 指定 24 小时有效
 minio sign bucket object -e 1h        # 指定 1 小时有效
 ```
 
+#### 复制对象
+
+```bash
+minio copy src-bucket src-object dest-bucket dest-object
+minio copy bucket1 file.txt bucket2 backup/file.txt
+```
+
+### 配置管理
+
+```bash
+minio config set                      # 设置配置（加密存储）
+minio config show                     # 查看配置（解密显示）
+minio config passwd                   # 修改主密码
+```
+
 ## 项目结构
 
 ```
 minio/
 ├── main.go           # 程序入口
-├── config.go         # 配置文件解析
+├── config.go         # 配置文件解析（支持解密）
 ├── client.go         # MinIO 客户端创建
+├── crypto/
+│   └── crypto.go     # 加解密（PBKDF2 + AES-256-GCM）
 ├── commands/
-│   └── root.go       # Cobra 命令定义
+│   ├── root.go       # Cobra 命令定义
+│   └── config.go     # config 子命令
 ├── operations/
 │   ├── list.go       # 列出对象
 │   ├── stat.go       # 查询元数据
 │   ├── get.go        # 下载对象
 │   ├── cat.go        # 输出内容
 │   ├── put.go        # 上传文件
+│   ├── copy.go       # 复制对象
 │   └── presign.go    # 生成签名 URL
 ├── shell/
 │   └── shell.go      # 交互式 Shell 实现
@@ -157,6 +206,7 @@ minio/
 
 - [Cobra](https://github.com/spf13/cobra) - 命令行解析
 - [minio-go](https://github.com/minio/minio-go) - MinIO/S3 SDK
+- [golang.org/x/crypto](https://golang.org/x/crypto) - PBKDF2 密钥派生
 
 ## 许可证
 

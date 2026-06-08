@@ -65,6 +65,7 @@ func NewRootCmd() *cobra.Command {
 
 	// 添加子命令
 	rootCmd.AddCommand(
+		NewConfigCmd(),
 		NewPutCmd(),
 		NewListCmd(),
 		NewStatCmd(),
