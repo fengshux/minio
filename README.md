@@ -174,7 +174,6 @@ minio copy bucket1 file.txt bucket2 backup/file.txt
 ```bash
 minio config set                      # 设置配置（加密存储）
 minio config show                     # 查看配置（解密显示）
-minio config passwd                   # 修改主密码
 ```
 
 ## 项目结构
@@ -199,7 +198,7 @@ minio/
 │   └── presign.go    # 生成签名 URL
 ├── shell/
 │   └── shell.go      # 交互式 Shell 实现
-└── spec.md           # 交互模式设计文档
+└── README.md         # 说明文档
 ```
 
 ## 依赖
