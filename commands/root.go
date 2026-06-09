@@ -8,7 +8,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/spf13/cobra"
 	"minio/operations"
-	"minio/shell"
+	"minio/tui"
 )
 
 var (
@@ -51,9 +51,8 @@ func NewRootCmd() *cobra.Command {
 			return nil
 		},
 		Run: func(cmd *cobra.Command, args []string) {
-			// 无子命令时进入交互模式
-			sh := shell.NewShell(client)
-			if err := sh.Run(); err != nil {
+			// 无子命令时进入 TUI 交互模式
+			if err := tui.Run(client); err != nil {
 				fmt.Println(err)
 				os.Exit(1)
 			}

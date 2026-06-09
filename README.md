@@ -1,11 +1,11 @@
 # MinIO CLI
 
-一个用于管理 MinIO/S3 对象存储的命令行工具，支持命令行模式和交互式 Shell 模式。
+一个用于管理 MinIO/S3 对象存储的命令行工具，支持命令行模式和 TUI 交互模式。
 
 ## 功能特性
 
 - **命令行模式**: 单次执行操作，适合脚本和自动化
-- **交互模式**: 类似 FTP/SFTP 的交互式 Shell，适合日常操作
+- **TUI 交互模式**: 基于 Bubble Tea 的终端用户界面，支持分屏布局、进度显示、历史记录
 - **加密存储**: 敏感信息（accesskey、secretkey）加密存储，更安全
 - **多配置支持**: 支持多个配置文件路径优先级查找
 
@@ -63,57 +63,56 @@ secretkey=your-secret-key
 
 ## 使用方式
 
-### 交互模式
+### TUI 交互模式
 
-直接运行 `minio` 进入交互式 Shell:
+直接运行 `minio` 进入 TUI 界面:
 
 ```bash
 ./minio
 ```
 
-交互模式命令:
+**界面布局:**
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ MinIO Explorer - bucket-name/prefix/                     F1:帮助 │
+├────────────────────────────────────────┬─────────────────────────┤
+│  Name                 Size    Modified │ 对象详情: file.txt      │
+│  📁 photos/                        -   │ 大小: 1.2 MB            │
+│  📄 file.txt          1.2 MB   01-15  │ 修改: 2024-01-15        │
+│  📄 data.json         15 KB    01-13  │ ETag: abc123            │
+├────────────────────────────────────────┴─────────────────────────┤
+│ > get file.txt                                                   │
+├──────────────────────────────────────────────────────────────────┤
+│ [↑↓]导航 [Enter]选择 [Backspace]返回 [:]命令 [r]刷新 [q]退出     │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**快捷键:**
+
+| 快捷键 | 说明 |
+|--------|------|
+| `↑` `↓` | 导航选择 |
+| `Enter` | 进入目录/查看详情 |
+| `Backspace` | 返回上级 |
+| `:` | 进入命令模式 |
+| `r` | 刷新列表 |
+| `h` | 查看历史 |
+| `Tab` | 切换左右面板 |
+| `q` | 退出 |
+
+**命令模式命令:**
 
 | 命令 | 说明 | 示例 |
 |------|------|------|
-| `use <bucket>` | 切换当前 bucket | `use my-bucket` |
-| `cd <prefix>` | 切换当前 prefix，支持 `..` 和 `/` | `cd photos/`, `cd ..`, `cd /` |
-| `pwd` | 显示当前远程路径 | `pwd` |
-| `ls`, `list [-r]` | 列出当前 prefix 下的对象 | `ls`, `list`, `ls -r`, `list -r` |
-| `stat <object>` | 查询对象元数据 | `stat file.txt` |
-| `cat <object>` | 输出对象内容到标准输出 | `cat logs/app.log` |
-| `get <object>` | 下载对象到本地当前目录 | `get file.txt` |
-| `put <file> [name]` | 上传本地文件到当前 prefix | `put ./local.txt`, `put ./local.txt remote.txt` |
-| `sign <object> [expire]` | 生成签名下载链接 | `sign file.txt`, `sign file.txt 24h` |
-| `lls [path]` | 列出本地目录内容 | `lls`, `lls /tmp` |
-| `lcd <path>` | 切换本地工作目录 | `lcd /tmp` |
-| `lpwd` | 显示当前本地工作目录 | `lpwd` |
-| `clear` | 清屏 | `clear` |
-| `help` | 显示帮助信息 | `help` |
-| `exit` / `quit` | 退出交互模式 | `exit` |
-
-交互模式示例:
-
-```
-minio> use test-bucket
-已切换到 bucket: test-bucket
-test-bucket/> ls
-        1024 file.txt
-d        0 photos/
-test-bucket/> cd photos/
-当前路径: test-bucket/photos/
-test-bucket/photos/> ls -r
-        2048 2024/image1.jpg
-        3072 2024/image2.jpg
-test-bucket/photos/> get 2024/image1.jpg
-下载成功: image1.jpg (2.00 KB)
-test-bucket/photos/> lcd /tmp
-本地目录: /tmp
-test-bucket/photos/> lls
-d        0 Downloads
-       1024 test.txt
-test-bucket/photos/> exit
-再见!
-```
+| `use <bucket>` | 切换 bucket | `use my-bucket` |
+| `cd <prefix>` | 切换目录 | `cd photos/` |
+| `ls [-r]` | 列出对象 | `ls`, `ls -r` |
+| `get <object>` | 下载对象 | `get file.txt` |
+| `put <file>` | 上传文件 | `put ./local.txt` |
+| `sign <object>` | 生成签名链接 | `sign file.txt` |
+| `history` | 查看操作历史 | `history` |
+| `exit` | 退出 | `exit` |
 
 ### 命令行模式
 
@@ -189,6 +188,7 @@ minio/
 │   ├── root.go       # Cobra 命令定义
 │   └── config.go     # config 子命令
 ├── operations/
+│   ├── types.go      # 数据结构定义
 │   ├── list.go       # 列出对象
 │   ├── stat.go       # 查询元数据
 │   ├── get.go        # 下载对象
@@ -196,8 +196,10 @@ minio/
 │   ├── put.go        # 上传文件
 │   ├── copy.go       # 复制对象
 │   └── presign.go    # 生成签名 URL
-├── shell/
-│   └── shell.go      # 交互式 Shell 实现
+├── tui/
+│   ├── model.go      # TUI 状态模型
+│   ├── app.go        # Bubble Tea 主程序
+│   └── styles.go     # 样式定义
 └── README.md         # 说明文档
 ```
 
@@ -205,6 +207,7 @@ minio/
 
 - [Cobra](https://github.com/spf13/cobra) - 命令行解析
 - [minio-go](https://github.com/minio/minio-go) - MinIO/S3 SDK
+- [Bubble Tea](https://github.com/charmbracelet/bubbletea) - TUI 框架
 - [golang.org/x/crypto](https://golang.org/x/crypto) - PBKDF2 密钥派生
 
 ## 许可证

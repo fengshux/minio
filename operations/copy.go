@@ -18,9 +18,8 @@ func NewCopier(client *minio.Client) *Copier {
 	return &Copier{client: client}
 }
 
-// Copy 复制对象到目标位置
-func (c *Copier) Copy(ctx context.Context, srcBucket, srcObject, destBucket, destObject string) {
-	// 使用 CopyObject 方法复制对象
+// CopyObject 复制对象到目标位置，返回结构化数据
+func (c *Copier) CopyObject(ctx context.Context, srcBucket, srcObject, destBucket, destObject string) (*CopyResult, error) {
 	src := minio.CopySrcOptions{
 		Bucket: srcBucket,
 		Object: srcObject,
@@ -33,9 +32,25 @@ func (c *Copier) Copy(ctx context.Context, srcBucket, srcObject, destBucket, des
 
 	result, err := c.client.CopyObject(ctx, dst, src)
 	if err != nil {
-		log.Fatalf("复制对象失败: %v", err)
+		return nil, fmt.Errorf("复制对象失败: %w", err)
+	}
+
+	return &CopyResult{
+		SrcBucket: srcBucket,
+		SrcKey:    srcObject,
+		DstBucket: destBucket,
+		DstKey:    destObject,
+		ETag:      result.ETag,
+	}, nil
+}
+
+// Copy 复制对象到目标位置（CLI 直接输出）
+func (c *Copier) Copy(ctx context.Context, srcBucket, srcObject, destBucket, destObject string) {
+	result, err := c.CopyObject(ctx, srcBucket, srcObject, destBucket, destObject)
+	if err != nil {
+		log.Fatalf("%v", err)
 	}
 
 	fmt.Printf("复制成功: %s/%s -> %s/%s (ETag: %s)\n",
-		srcBucket, srcObject, destBucket, destObject, result.ETag)
+		result.SrcBucket, result.SrcKey, result.DstBucket, result.DstKey, result.ETag)
 }
