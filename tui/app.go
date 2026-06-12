@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/minio/minio-go/v7"
 	"minio/operations"
 )
@@ -16,18 +16,20 @@ import (
 // Run 启动 TUI
 func Run(client *minio.Client) error {
 	m := NewModel(client)
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m)
 	_, err := p.Run()
 	return err
 }
 
 // 消息类型
-type listLoadedMsg struct {
-	items   []list.Item
-	path    string // 当前路径
-	bucket  string // 当前桶名
-	prefix  string // 当前前缀
-	err     error
+type listStreamMsg struct {
+	items  []list.Item
+	path   string // 当前路径
+	bucket string // 当前桶名
+	prefix string // 当前前缀
+	first  bool   // 是否是第一批（用于清空旧列表 + 设置路径）
+	done   bool   // 是否加载完成
+	err    error
 }
 
 type objectInfoLoadedMsg struct {
@@ -54,7 +56,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return m.handleKeyPress(msg)
 
 	case tea.WindowSizeMsg:
@@ -65,21 +67,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.objectList.SetSize(m.width*60/100, listHeight) // 左侧 60%
 		return m, nil
 
-	case listLoadedMsg:
-		m.objectList.StopSpinner()
+	case listStreamMsg:
 		if msg.err != nil {
 			m.err = msg.err
+			m.loading = false
+			m.objectList.StopSpinner()
 			return m, nil
 		}
-		m.currentPath = msg.path
-		m.currentBucket = msg.bucket
-		m.currentPrefix = msg.prefix
-		m.objectList.SetItems(msg.items)
-		m.objectList.Title = m.currentPath
-		if m.currentPath == "/" {
-			m.objectList.Title = "根目录"
+		if msg.first {
+			// 第一批：清空旧列表，设置路径和标题
+			m.currentPath = msg.path
+			m.currentBucket = msg.bucket
+			m.currentPrefix = msg.prefix
+			m.objectList.SetItems(msg.items)
+			m.objectList.Title = msg.path
+			if msg.path == "/" {
+				m.objectList.Title = "根目录"
+			}
+		} else if !msg.done {
+			// 增量追加
+			currentItems := m.objectList.Items()
+			m.objectList.SetItems(append(currentItems, msg.items...))
 		}
-		return m, nil
+		if msg.done {
+			m.loading = false
+			m.objectList.StopSpinner()
+			return m, nil
+		}
+		// 继续等待下一条
+		return m, waitForNextItem(m.loadingCh)
 
 	case objectInfoLoadedMsg:
 		if msg.err == nil {
@@ -107,7 +123,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // View 实现 tea.Model
-func (m Model) View() string {
+func (m Model) View() tea.View {
 	var b strings.Builder
 
 	// 标题栏
@@ -145,19 +161,22 @@ func (m Model) View() string {
 	// 状态栏
 	b.WriteString(m.renderStatusBar())
 
-	return b.String()
+	return tea.View{
+		Content:   b.String(),
+		AltScreen: true, // 启用 alt screen
+	}
 }
 
 // handleKeyPress 处理按键
-func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// 命令输入模式
 	if m.inputFocused {
-		switch msg.Type {
+		switch msg.Code {
 		case tea.KeyEnter:
 			cmd := m.input.Value()
 			m.input.SetValue("")
 			m.inputFocused = false
-			return m, m.executeCommand(cmd)
+			return m.executeCommand(cmd)
 		case tea.KeyEsc:
 			m.inputFocused = false
 			m.input.SetValue("")
@@ -169,11 +188,16 @@ func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Filter 输入模式
 	if m.filterMode {
-		switch msg.Type {
+		switch msg.Code {
 		case tea.KeyEnter:
 			// 确认过滤，退出 filter 模式
 			m.filterMode = false
 			return m, nil
+		case tea.KeyUp, tea.KeyDown:
+			// 导航键传递给列表组件
+			var cmd tea.Cmd
+			m.objectList, cmd = m.objectList.Update(msg)
+			return m, cmd
 		case tea.KeyEsc:
 			// 取消过滤，恢复原始列表
 			m.filterMode = false
@@ -194,7 +218,7 @@ func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		default:
 			// 其他字符输入
-			if msg.Type == tea.KeyRunes {
+			if msg.Text != "" {
 				m.input, _ = m.input.Update(msg)
 				m.applyFilter(m.input.Value())
 			}
@@ -208,6 +232,9 @@ func (m *Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "ctrl+c":
 		return m, tea.Quit
+	case "esc":
+		// 忽略 ESC，不退出程序
+		return m, nil
 	case ":":
 		m.inputFocused = true
 		m.input.Prompt = ": "
@@ -252,11 +279,11 @@ func (m *Model) handleSelect() (tea.Model, tea.Cmd) {
 	if item, ok := m.objectList.SelectedItem().(pathItem); ok {
 		if item.isBucket {
 			// 选择桶，进入桶根目录
-			return m, loadObjectsCmd(m.lister, item.name, "", false)
+			return m.startStreamingLoad(item.name, "")
 		}
 		if item.isDir {
 			// 选择目录，进入子目录
-			return m, loadObjectsCmd(m.lister, m.getBucketFromPath(), item.name, false)
+			return m.startStreamingLoad(m.getBucketFromPath(), item.name)
 		}
 		// 选择文件，加载详情
 		return m, loadObjectInfoCmd(m.stater, m.getBucketFromPath(), item.name)
@@ -280,7 +307,7 @@ func (m *Model) navigateBack() (tea.Model, tea.Cmd) {
 			} else {
 				m.currentPrefix = ""
 			}
-			return m, loadObjectsCmd(m.lister, m.currentBucket, m.currentPrefix, false)
+			return m.startStreamingLoad(m.currentBucket, m.currentPrefix)
 		}
 		// 在桶根目录，返回根目录（桶列表）
 		return m, loadRootCmd(m.lister)
@@ -325,43 +352,31 @@ func (m *Model) refresh() (tea.Model, tea.Cmd) {
 	if m.currentPath == "/" {
 		return m, loadRootCmd(m.lister)
 	}
-	return m, loadObjectsCmd(m.lister, m.currentBucket, m.currentPrefix, false)
+	return m.startStreamingLoad(m.currentBucket, m.currentPrefix)
 }
 
 // executeCommand 执行命令
-func (m *Model) executeCommand(cmd string) tea.Cmd {
+func (m *Model) executeCommand(cmd string) (tea.Model, tea.Cmd) {
 	cmd = strings.TrimSpace(cmd)
 	if cmd == "" {
-		return nil
+		return m, nil
 	}
 
 	parts := strings.Fields(cmd)
 	if len(parts) == 0 {
-		return nil
+		return m, nil
 	}
 
 	switch parts[0] {
 	case "cd":
 		if len(parts) < 2 {
-			return nil
+			return m, nil
 		}
 		target := parts[1]
 		switch target {
 		case "/", "..":
 			// 返回根目录或上级
-			if m.currentPath == "/" {
-				return nil
-			}
-			if m.currentPrefix != "" {
-				parts := strings.Split(strings.TrimSuffix(m.currentPrefix, "/"), "/")
-				if len(parts) > 1 {
-					m.currentPrefix = strings.Join(parts[:len(parts)-1], "/") + "/"
-				} else {
-					m.currentPrefix = ""
-				}
-				return loadObjectsCmd(m.lister, m.currentBucket, m.currentPrefix, false)
-			}
-			return loadRootCmd(m.lister)
+			return m.navigateBack()
 		default:
 			// cd 到指定路径
 			if strings.Contains(target, "/") {
@@ -375,12 +390,12 @@ func (m *Model) executeCommand(cmd string) tea.Cmd {
 						prefix += "/"
 					}
 				}
-				return loadObjectsCmd(m.lister, bucket, prefix, false)
+				return m.startStreamingLoad(bucket, prefix)
 			}
 			// 相对路径：可能是桶名或目录名
 			if m.currentPath == "/" {
 				// 当前在根目录，target 是桶名
-				return loadObjectsCmd(m.lister, target, "", false)
+				return m.startStreamingLoad(target, "")
 			}
 			// 在桶内，target 是目录
 			prefix := target
@@ -390,61 +405,55 @@ func (m *Model) executeCommand(cmd string) tea.Cmd {
 			if m.currentPrefix != "" {
 				prefix = m.currentPrefix + prefix
 			}
-			return loadObjectsCmd(m.lister, m.currentBucket, prefix, false)
+			return m.startStreamingLoad(m.currentBucket, prefix)
 		}
 
 	case "ls", "list":
-		recursive := false
-		for _, arg := range parts[1:] {
-			if arg == "-r" {
-				recursive = true
-			}
-		}
 		if m.currentPath == "/" {
-			return nil // 根目录不能 ls
+			return m, nil // 根目录不能 ls
 		}
-		return loadObjectsCmd(m.lister, m.currentBucket, m.currentPrefix, recursive)
+		return m.startStreamingLoad(m.currentBucket, m.currentPrefix)
 
 	case "get":
 		if len(parts) < 2 || m.currentPath == "/" {
-			return nil
+			return m, nil
 		}
 		objectName := parts[1]
 		if m.currentPrefix != "" && !strings.Contains(objectName, "/") {
 			objectName = m.currentPrefix + objectName
 		}
-		return m.downloadObject(objectName)
+		return m, m.downloadObject(objectName)
 
 	case "put":
 		if len(parts) < 2 || m.currentPath == "/" {
-			return nil
+			return m, nil
 		}
 		localPath := parts[1]
 		objectName := ""
 		if len(parts) > 2 {
 			objectName = parts[2]
 		}
-		return m.uploadObject(localPath, objectName)
+		return m, m.uploadObject(localPath, objectName)
 
 	case "sign":
 		if len(parts) < 2 || m.currentPath == "/" {
-			return nil
+			return m, nil
 		}
 		objectName := parts[1]
 		if m.currentPrefix != "" && !strings.Contains(objectName, "/") {
 			objectName = m.currentPrefix + objectName
 		}
-		return m.signObject(objectName)
+		return m, m.signObject(objectName)
 
 	case "history":
 		m.viewState = ViewStateHistory
-		return nil
+		return m, nil
 
 	case "exit", "quit":
-		return tea.Quit
+		return m, tea.Quit
 	}
 
-	return nil
+	return m, nil
 }
 
 // getBucketFromPath 从当前路径提取桶名
@@ -457,42 +466,111 @@ func loadRootCmd(lister *operations.Lister) tea.Cmd {
 	return func() tea.Msg {
 		buckets, err := lister.ListBuckets(context.Background())
 		if err != nil {
-			return listLoadedMsg{err: err}
+			return listStreamMsg{err: err, done: true}
 		}
 		items := make([]list.Item, len(buckets))
 		for i, b := range buckets {
 			items[i] = pathItem{
-				name:      b.Name,
-				isBucket:  true,
-				isDir:     true,
-				created:   b.CreationDate,
+				name:     b.Name,
+				isBucket: true,
+				isDir:    true,
+				created:  b.CreationDate,
 			}
 		}
-		return listLoadedMsg{items: items, path: "/", bucket: "", prefix: ""}
+		return listStreamMsg{items: items, path: "/", bucket: "", prefix: "", first: true, done: true}
 	}
 }
 
-func loadObjectsCmd(lister *operations.Lister, bucket, prefix string, recursive bool) tea.Cmd {
-	return func() tea.Msg {
-		result, err := lister.ListObjects(context.Background(), bucket, prefix, recursive)
-		if err != nil {
-			return listLoadedMsg{err: err}
-		}
-		items := make([]list.Item, len(result.Objects))
-		for i, o := range result.Objects {
-			items[i] = pathItem{
-				name:         o.Key,
+// startStreamingLoad 开始流式加载目录内容
+func (m *Model) startStreamingLoad(bucket, prefix string) (tea.Model, tea.Cmd) {
+	m.objectList.SetItems(nil)
+	m.loading = true
+	m.loadingCh = make(chan listStreamMsg, 100)
+
+	path := bucket
+	if prefix != "" {
+		path = bucket + "/" + prefix
+	}
+	m.objectList.Title = path
+	if path == "/" {
+		m.objectList.Title = "根目录"
+	}
+
+	return m, tea.Batch(
+		m.objectList.StartSpinner(),
+		loadObjectsStreamingCmd(m.lister, bucket, prefix, m.loadingCh),
+	)
+}
+
+// loadObjectsStreamingCmd 流式加载对象列表
+func loadObjectsStreamingCmd(lister *operations.Lister, bucket, prefix string, ch chan listStreamMsg) tea.Cmd {
+	go func() {
+		var batch []list.Item
+		batchCount := 0
+		totalCount := 0
+
+		err := lister.ListObjectsStream(context.Background(), bucket, prefix, false, func(obj operations.ObjectInfo) {
+			item := pathItem{
+				name:         obj.Key,
 				isBucket:     false,
-				isDir:        o.IsDir,
-				size:         o.Size,
-				lastModified: o.LastModified,
+				isDir:        obj.IsDir,
+				size:         obj.Size,
+				lastModified: obj.LastModified,
+			}
+			batch = append(batch, item)
+			batchCount++
+			totalCount++
+
+			// 第1个立即发，之后每20个发一批
+			if batchCount == 1 || batchCount >= 20 {
+				path := bucket
+				if prefix != "" {
+					path = bucket + "/" + prefix
+				}
+				ch <- listStreamMsg{
+					items:  batch,
+					path:   path,
+					bucket: bucket,
+					prefix: prefix,
+					first:  totalCount == 1,
+				}
+				batch = nil
+				batchCount = 0
+			}
+		})
+
+		// 发送剩余的
+		if len(batch) > 0 {
+			path := bucket
+			if prefix != "" {
+				path = bucket + "/" + prefix
+			}
+			ch <- listStreamMsg{
+				items:  batch,
+				path:   path,
+				bucket: bucket,
+				prefix: prefix,
 			}
 		}
+
+		// 发送完成消息
 		path := bucket
 		if prefix != "" {
 			path = bucket + "/" + prefix
 		}
-		return listLoadedMsg{items: items, path: path, bucket: bucket, prefix: prefix}
+		ch <- listStreamMsg{done: true, err: err, path: path, bucket: bucket, prefix: prefix}
+	}()
+
+	// 返回第一个 Cmd：从 channel 读第一条消息
+	return func() tea.Msg {
+		return <-ch
+	}
+}
+
+// waitForNextItem 等待下一条流式消息
+func waitForNextItem(ch chan listStreamMsg) tea.Cmd {
+	return func() tea.Msg {
+		return <-ch
 	}
 }
 

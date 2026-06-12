@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/minio/minio-go/v7"
 )
@@ -59,6 +60,33 @@ func (l *Lister) ListBuckets(ctx context.Context) ([]BucketInfo, error) {
 		})
 	}
 	return result, nil
+}
+
+// ListObjectsStream 流式列出存储桶中的对象，每收到一个对象调用回调
+func (l *Lister) ListObjectsStream(ctx context.Context, bucketName, prefix string, recursive bool, fn func(ObjectInfo)) error {
+	opts := minio.ListObjectsOptions{
+		Recursive: recursive,
+		Prefix:    prefix,
+	}
+
+	objectCh := l.client.ListObjects(ctx, bucketName, opts)
+
+	for object := range objectCh {
+		if object.Err != nil {
+			return fmt.Errorf("列出对象失败: %w", object.Err)
+		}
+
+		fn(ObjectInfo{
+			Key:          object.Key,
+			Size:         object.Size,
+			LastModified: object.LastModified,
+			ETag:         object.ETag,
+			ContentType:  object.ContentType,
+			IsDir:        strings.HasSuffix(object.Key, "/") && object.Size == 0,
+		})
+	}
+
+	return nil
 }
 
 // List 列出存储桶中的对象（CLI 直接输出）

@@ -3,10 +3,10 @@ package tui
 import (
 	"time"
 
-	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/minio/minio-go/v7"
+	"charm.land/bubbles/v2/list"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/lipgloss/v2"
 	"minio/operations"
 )
 
@@ -81,6 +81,9 @@ type Model struct {
 
 	// 保存原始列表数据用于过滤
 	originalObjectItems []list.Item
+
+	// 流式加载 channel
+	loadingCh chan listStreamMsg
 }
 
 // NewModel 创建 TUI 模型
@@ -116,8 +119,8 @@ func NewModel(client *minio.Client) Model {
 	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.Foreground(lipgloss.Color("170")).BorderLeftForeground(lipgloss.Color("170"))
 	m.objectList.SetDelegate(delegate)
 
-	// 禁用列表的ESC键退出功能
-	m.objectList.KeyMap.Quit.SetEnabled(false)
+	// 禁用列表的退出键绑定（包括 ESC 和 ctrl+c）
+	m.objectList.DisableQuitKeybindings()
 
 	return m
 }
