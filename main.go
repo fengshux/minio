@@ -32,6 +32,11 @@ func init() {
 			return nil, fmt.Errorf("初始化客户端失败: %w", err)
 		}
 
-		return &commands.ClientWrapper{Client: client}, nil
+		core, err := NewCoreClient(cfg, debug)
+		if err != nil {
+			return nil, fmt.Errorf("初始化 Core 客户端失败: %w", err)
+		}
+
+		return &commands.ClientWrapper{Client: client, Core: core}, nil
 	}
 }

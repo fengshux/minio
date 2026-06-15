@@ -15,11 +15,13 @@ var (
 	configPath string
 	debug      bool
 	client     *minio.Client
+	core       *minio.Core
 )
 
 // ClientWrapper 包装 minio.Client 以便在 main 包中初始化
 type ClientWrapper struct {
 	Client *minio.Client
+	Core   *minio.Core
 }
 
 // InitClient 由 main 包设置的初始化客户端回调函数
@@ -48,6 +50,7 @@ func NewRootCmd() *cobra.Command {
 				return err
 			}
 			client = wrapper.Client
+			core = wrapper.Core
 			return nil
 		},
 		Run: func(cmd *cobra.Command, args []string) {
@@ -260,28 +263,49 @@ func NewSignCmd() *cobra.Command {
 
 // NewCopyCmd 创建 copy 子命令
 func NewCopyCmd() *cobra.Command {
-	return &cobra.Command{
+	var recursive bool
+	var concurrent int
+	var bigFile bool
+	cmd := &cobra.Command{
 		Use:   "copy src-bucket src-object dest-bucket dest-object",
-		Short: "复制对象",
-		Long: `将对象从一个位置复制到另一个位置，支持跨存储桶复制
+		Short: "复制对象或目录",
+		Long: `将对象或目录从一个位置复制到另一个位置，支持跨存储桶复制
 
 参数:
   src-bucket   源存储桶名称
-  src-object   源对象名称（完整路径）
+  src-object   源对象名称或目录前缀
   dest-bucket  目标存储桶名称
-  dest-object  目标对象名称（完整路径）
+  dest-object  目标对象名称或目录前缀
+
+选项:
+  -r, --recursive     递归复制整个目录
+  -c, --concurrent    并发复制数量（仅与 -r 一起使用，默认 0 表示逐个复制）
+  -b, --big           大文件分片复制（用于超过 5GB 的文件）
 
 示例:
-  minio copy my-bucket file.txt my-bucket copy.txt
-  minio copy bucket1 photos/image.jpg bucket2 backup/image.jpg`,
+  minio copy my-bucket file.txt my-bucket copy.txt              # 复制单个对象
+  minio copy bucket1 photos/ bucket2 backup/photos/ -r          # 递归复制目录（逐个）
+  minio copy bucket1 photos/ bucket2 backup/photos/ -r -c 5     # 递归复制目录（5个并发）
+  minio copy bucket1 large.dat bucket2 large-copy.dat -b        # 大文件分片复制`,
 		Args: cobra.ExactArgs(4),
 		Run: func(cmd *cobra.Command, args []string) {
 			srcBucket := args[0]
 			srcObject := args[1]
 			destBucket := args[2]
 			destObject := args[3]
-			copier := operations.NewCopier(client)
-			copier.Copy(cmd.Context(), srcBucket, srcObject, destBucket, destObject)
+			copier := operations.NewCopier(client, core)
+
+			if recursive {
+				copier.CopyDir(cmd.Context(), srcBucket, srcObject, destBucket, destObject, concurrent)
+			} else if bigFile {
+				copier.MultipartCopy(cmd.Context(), srcBucket, srcObject, destBucket, destObject)
+			} else {
+				copier.Copy(cmd.Context(), srcBucket, srcObject, destBucket, destObject)
+			}
 		},
 	}
+	cmd.Flags().BoolVarP(&recursive, "recursive", "r", false, "递归复制整个目录")
+	cmd.Flags().IntVarP(&concurrent, "concurrent", "c", 0, "并发复制数量（仅与 -r 一起使用）")
+	cmd.Flags().BoolVarP(&bigFile, "big", "b", false, "大文件分片复制")
+	return cmd
 }

@@ -21,3 +21,18 @@ func NewClient(cfg *Config, debug bool) (*minio.Client, error) {
 	}
 	return client, nil
 }
+
+// NewCoreClient 创建 MinIO Core 客户端（用于分片操作）
+func NewCoreClient(cfg *Config, debug bool) (*minio.Core, error) {
+	core, err := minio.NewCore(cfg.Endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
+		Secure: cfg.UseSSL,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if debug {
+		core.TraceOn(os.Stderr)
+	}
+	return core, nil
+}

@@ -60,5 +60,24 @@ type CopyResult struct {
 	ETag      string
 }
 
+// BatchCopyResult 批量复制结果
+type BatchCopyResult struct {
+	SrcBucket  string
+	DestBucket string
+	SrcPrefix  string
+	DestPrefix string
+	Success    int
+	Failed     int
+	Results    []CopyResult
+	Errors     []CopyError
+}
+
+// CopyError 复制错误
+type CopyError struct {
+	SrcKey string
+	DstKey string
+	Error  string
+}
+
 // ProgressCallback 进度回调函数
 type ProgressCallback func(doneBytes, totalBytes int64)
