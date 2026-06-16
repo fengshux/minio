@@ -119,74 +119,74 @@ secretkey=your-secret-key
 #### 列出对象
 
 ```bash
-minio list bucket [prefix]           # 列出根级对象
-minio list bucket photos/            # 列出指定前缀下的对象
-minio list bucket -r                 # 递归列出所有对象
-minio list bucket photos/ -r         # 递归列出指定前缀下所有对象
+minio list bucket/prefix              # 列出根级对象
+minio list bucket/photos/             # 列出指定前缀下的对象
+minio list bucket/ -r                 # 递归列出所有对象
+minio list bucket/photos/ -r          # 递归列出指定前缀下所有对象
 ```
 
 #### 查询对象元数据
 
 ```bash
-minio stat bucket object             # 获取对象详细信息
-minio stat my-bucket photos/2024/image.jpg
+minio stat bucket/object              # 获取对象详细信息
+minio stat my-bucket/photos/2024/image.jpg
 ```
 
 #### 下载对象
 
 ```bash
-minio get bucket object              # 下载对象（默认保存为对象名）
-minio get bucket object -o /tmp/file # 指定保存路径
+minio get bucket/object               # 下载对象（默认保存为对象名）
+minio get bucket/object -o /tmp/file  # 指定保存路径
 ```
 
 #### 输出对象内容
 
 ```bash
-minio cat bucket object              # 输出对象内容到 stdout
-minio cat my-bucket logs/app.log
+minio cat bucket/object               # 输出对象内容到 stdout
+minio cat my-bucket/logs/app.log
 ```
 
 #### 上传文件
 
 ```bash
-minio put bucket object local-file   # 上传文件
-minio put bucket data.json ./data.json -t application/json  # 指定 Content-Type
+minio put bucket/object local-file    # 上传文件
+minio put bucket/data.json ./data.json -t application/json  # 指定 Content-Type
 ```
 
 #### 生成签名下载链接
 
 ```bash
-minio sign bucket object              # 生成签名链接（默认 7 天有效）
-minio sign bucket object -e 24h       # 指定 24 小时有效
-minio sign bucket object -e 1h        # 指定 1 小时有效
+minio sign bucket/object              # 生成签名链接（默认 7 天有效）
+minio sign bucket/object -e 24h       # 指定 24 小时有效
+minio sign bucket/object -e 1h        # 指定 1 小时有效
 ```
 
 #### 复制对象
 
 ```bash
-minio copy src-bucket src-object dest-bucket dest-object  # 复制单个对象
-minio copy bucket1 file.txt bucket2 backup/file.txt       # 示例
+minio copy src-bucket/src-object dest-bucket/dest-object  # 复制单个对象
+minio copy bucket1/file.txt bucket2/backup/file.txt       # 示例
 
 # 递归复制目录
-minio copy bucket1 photos/ bucket2 backup/photos/ -r      # 逐个复制
-minio copy bucket1 photos/ bucket2 backup/photos/ -r -c 5 # 5个并发复制
+minio copy bucket1/photos/ bucket2/backup/photos/ -r      # 逐个复制
+minio copy bucket1/photos/ bucket2/backup/photos/ -r -c 5 # 5个并发复制
 
 # 大文件分片复制（用于超过 5GB 的文件）
-minio copy bucket1 large.dat bucket2 large-copy.dat -b
-minio copy bucket1 large.dat bucket2 large-copy.dat --big
+minio copy bucket1/large.dat bucket2/large-copy.dat -b
+minio copy bucket1/large.dat bucket2/large-copy.dat --big
 ```
 
 #### 删除对象
 
 ```bash
-minio del bucket object              # 删除单个对象（需确认）
-minio del bucket object --force      # 删除单个对象（无需确认）
+minio del bucket/object               # 删除单个对象（需确认）
+minio del bucket/object --force       # 删除单个对象（无需确认）
 
 # 递归删除目录
-minio del bucket photos/ -r                # 逐个删除（需确认）
-minio del bucket photos/ -r -c 5           # 5个并发删除（需确认）
-minio del bucket photos/ -r --force        # 逐个删除（无需确认）
-minio del bucket photos/ -r -c 5 --force   # 5个并发删除（无需确认）
+minio del bucket/photos/ -r                # 逐个删除（需确认）
+minio del bucket/photos/ -r -c 5           # 5个并发删除（需确认）
+minio del bucket/photos/ -r --force        # 逐个删除（无需确认）
+minio del bucket/photos/ -r -c 5 --force   # 5个并发删除（无需确认）
 ```
 
 **删除确认提示：**

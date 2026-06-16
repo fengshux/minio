@@ -109,6 +109,8 @@ func (d *Deleter) deleteSequential(ctx context.Context, bucket string, tasks []d
 	count := 0
 	var errors []DeleteError
 
+	bar := NewProgressBar(len(tasks), "删除中")
+
 	for _, task := range tasks {
 		err := d.client.RemoveObject(ctx, bucket, task.key, minio.RemoveObjectOptions{})
 		if err != nil {
@@ -116,10 +118,14 @@ func (d *Deleter) deleteSequential(ctx context.Context, bucket string, tasks []d
 				Key:   task.key,
 				Error: err.Error(),
 			})
+			bar.Increment()
 			continue
 		}
 		count++
+		bar.Increment()
 	}
+
+	bar.Done()
 
 	return count, errors
 }
@@ -131,6 +137,8 @@ func (d *Deleter) deleteConcurrent(ctx context.Context, bucket string, tasks []d
 
 	count := 0
 	var errors []DeleteError
+
+	bar := NewProgressBar(len(tasks), "删除中")
 
 	// 使用信号量控制并发数
 	sem := make(chan struct{}, concurrent)
@@ -155,11 +163,13 @@ func (d *Deleter) deleteConcurrent(ctx context.Context, bucket string, tasks []d
 			} else {
 				count++
 			}
+			bar.Increment()
 			mu.Unlock()
 		}(task)
 	}
 
 	wg.Wait()
+	bar.Done()
 	return count, errors
 }
 

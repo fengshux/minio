@@ -122,6 +122,7 @@ type copyTask struct {
 
 // copySequential 逐个复制
 func (c *Copier) copySequential(ctx context.Context, srcBucket, destBucket string, tasks []copyTask, result *BatchCopyResult) {
+	bar := NewProgressBar(len(tasks), "复制中")
 	for _, task := range tasks {
 		copyResult, err := c.CopyObject(ctx, srcBucket, task.srcKey, destBucket, task.dstKey)
 		if err != nil {
@@ -131,17 +132,22 @@ func (c *Copier) copySequential(ctx context.Context, srcBucket, destBucket strin
 				DstKey: task.dstKey,
 				Error:  err.Error(),
 			})
+			bar.Increment()
 			continue
 		}
 		result.Success++
 		result.Results = append(result.Results, *copyResult)
+		bar.Increment()
 	}
+	bar.Done()
 }
 
 // copyConcurrent 并发复制
 func (c *Copier) copyConcurrent(ctx context.Context, srcBucket, destBucket string, tasks []copyTask, result *BatchCopyResult, concurrent int) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+
+	bar := NewProgressBar(len(tasks), "复制中")
 
 	// 使用信号量控制并发数
 	sem := make(chan struct{}, concurrent)
@@ -169,11 +175,13 @@ func (c *Copier) copyConcurrent(ctx context.Context, srcBucket, destBucket strin
 				result.Success++
 				result.Results = append(result.Results, *copyResult)
 			}
+			bar.Increment()
 			mu.Unlock()
 		}(task)
 	}
 
 	wg.Wait()
+	bar.Done()
 }
 
 // CopyDir 递归复制整个目录（CLI 直接输出）
@@ -235,6 +243,8 @@ func (c *Copier) MultipartCopyObject(ctx context.Context, srcBucket, srcObject, 
 	var parts []minio.CompletePart
 	partCount := int(math.Ceil(float64(objectSize) / float64(partSize)))
 
+	bar := NewProgressBar(partCount, "分片复制")
+
 	for i := range partCount {
 		partNumber := i + 1
 		startOffset := int64(i) * partSize
@@ -247,11 +257,15 @@ func (c *Copier) MultipartCopyObject(ctx context.Context, srcBucket, srcObject, 
 		part, err := c.core.CopyObjectPart(ctx, srcBucket, srcObject,
 			destBucket, destObject, uploadID, partNumber, startOffset, length, nil)
 		if err != nil {
+			bar.Done()
 			return nil, fmt.Errorf("分片 %d 复制失败: %w", partNumber, err)
 		}
 
 		parts = append(parts, part)
+		bar.Increment()
 	}
+
+	bar.Done()
 
 	// 5. 完成分片上传
 	uploadInfo, err := c.core.CompleteMultipartUpload(ctx, destBucket, destObject, uploadID, parts, minio.PutObjectOptions{})
