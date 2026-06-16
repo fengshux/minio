@@ -75,6 +75,7 @@ func NewRootCmd() *cobra.Command {
 		NewCatCmd(),
 		NewSignCmd(),
 		NewCopyCmd(),
+		NewDelCmd(),
 	)
 
 	return rootCmd
@@ -307,5 +308,54 @@ func NewCopyCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&recursive, "recursive", "r", false, "递归复制整个目录")
 	cmd.Flags().IntVarP(&concurrent, "concurrent", "c", 0, "并发复制数量（仅与 -r 一起使用）")
 	cmd.Flags().BoolVarP(&bigFile, "big", "b", false, "大文件分片复制")
+	return cmd
+}
+
+// NewDelCmd 创建 del 子命令
+func NewDelCmd() *cobra.Command {
+	var recursive bool
+	var force bool
+	var concurrent int
+	cmd := &cobra.Command{
+		Use:   "del bucket object",
+		Short: "删除对象或目录",
+		Long: `删除指定存储桶中的对象或目录
+
+参数:
+  bucket  存储桶名称
+  object  对象名称或目录前缀
+
+选项:
+  -r, --recursive    递归删除整个目录
+  -c, --concurrent   并发删除数量（仅与 -r 一起使用，默认 0 表示逐个删除）
+  --force            强制删除，不进行确认提示
+
+示例:
+  minio del my-bucket file.txt                  # 删除单个对象（需确认）
+  minio del my-bucket file.txt --force          # 删除单个对象（无需确认）
+  minio del my-bucket photos/ -r                # 递归删除目录（逐个，需确认）
+  minio del my-bucket photos/ -r -c 5           # 递归删除目录（5个并发，需确认）
+  minio del my-bucket photos/ -r --force        # 递归删除目录（逐个，无需确认）
+  minio del my-bucket photos/ -r -c 5 --force   # 递归删除目录（5个并发，无需确认）
+
+确认提示:
+  执行删除前会提示 "确定要删除 xxx 吗？(y/N)"
+  输入 y 或 Y 确认删除，输入其他则取消操作`,
+		Args: cobra.ExactArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			bucket := args[0]
+			object := args[1]
+			deleter := operations.NewDeleter(client)
+
+			if recursive {
+				deleter.DeleteDir(cmd.Context(), bucket, object, force, concurrent)
+			} else {
+				deleter.Delete(cmd.Context(), bucket, object, force)
+			}
+		},
+	}
+	cmd.Flags().BoolVarP(&recursive, "recursive", "r", false, "递归删除整个目录")
+	cmd.Flags().IntVarP(&concurrent, "concurrent", "c", 0, "并发删除数量（仅与 -r 一起使用）")
+	cmd.Flags().BoolVar(&force, "force", false, "强制删除，不进行确认提示")
 	return cmd
 }

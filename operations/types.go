@@ -81,3 +81,9 @@ type CopyError struct {
 
 // ProgressCallback 进度回调函数
 type ProgressCallback func(doneBytes, totalBytes int64)
+
+// DeleteError 删除错误
+type DeleteError struct {
+	Key   string
+	Error string
+}

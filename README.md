@@ -164,9 +164,36 @@ minio sign bucket object -e 1h        # 指定 1 小时有效
 #### 复制对象
 
 ```bash
-minio copy src-bucket src-object dest-bucket dest-object
-minio copy bucket1 file.txt bucket2 backup/file.txt
+minio copy src-bucket src-object dest-bucket dest-object  # 复制单个对象
+minio copy bucket1 file.txt bucket2 backup/file.txt       # 示例
+
+# 递归复制目录
+minio copy bucket1 photos/ bucket2 backup/photos/ -r      # 逐个复制
+minio copy bucket1 photos/ bucket2 backup/photos/ -r -c 5 # 5个并发复制
+
+# 大文件分片复制（用于超过 5GB 的文件）
+minio copy bucket1 large.dat bucket2 large-copy.dat -b
+minio copy bucket1 large.dat bucket2 large-copy.dat --big
 ```
+
+#### 删除对象
+
+```bash
+minio del bucket object              # 删除单个对象（需确认）
+minio del bucket object --force      # 删除单个对象（无需确认）
+
+# 递归删除目录
+minio del bucket photos/ -r                # 逐个删除（需确认）
+minio del bucket photos/ -r -c 5           # 5个并发删除（需确认）
+minio del bucket photos/ -r --force        # 逐个删除（无需确认）
+minio del bucket photos/ -r -c 5 --force   # 5个并发删除（无需确认）
+```
+
+**删除确认提示：**
+- 执行删除前会提示 `确定要删除 xxx 吗？(y/N)`
+- 输入 `y` 或 `Y` 确认删除
+- 输入其他任何内容取消操作
+- 使用 `--force` 选项跳过确认直接删除
 
 ### 配置管理
 
@@ -194,7 +221,8 @@ minio/
 │   ├── get.go        # 下载对象
 │   ├── cat.go        # 输出内容
 │   ├── put.go        # 上传文件
-│   ├── copy.go       # 复制对象
+│   ├── copy.go       # 复制对象（含分片复制）
+│   ├── del.go        # 删除对象
 │   └── presign.go    # 生成签名 URL
 ├── tui/
 │   ├── model.go      # TUI 状态模型
