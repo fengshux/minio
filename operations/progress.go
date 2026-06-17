@@ -74,3 +74,13 @@ func (p *ProgressBar) Done() {
 		fmt.Println()
 	}
 }
+
+// AddTotal 增加总数（线程安全）
+func (p *ProgressBar) AddTotal(delta int) {
+	p.mu.Lock()
+	p.total += delta
+	if !p.disabled {
+		p.render()
+	}
+	p.mu.Unlock()
+}

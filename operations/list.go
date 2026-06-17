@@ -62,31 +62,50 @@ func (l *Lister) ListBuckets(ctx context.Context) ([]BucketInfo, error) {
 	return result, nil
 }
 
-// ListObjectsStream 流式列出存储桶中的对象，每收到一个对象调用回调
-func (l *Lister) ListObjectsStream(ctx context.Context, bucketName, prefix string, recursive bool, fn func(ObjectInfo)) error {
-	opts := minio.ListObjectsOptions{
-		Recursive: recursive,
-		Prefix:    prefix,
-	}
+// ObjectResult 对象流式结果
+type ObjectResult struct {
+	Object ObjectInfo
+	Err    error
+}
 
-	objectCh := l.client.ListObjects(ctx, bucketName, opts)
+// ListObjectsStream 流式列出存储桶中的对象，返回 channel
+// 调用方通过 range 读取 channel，当 channel 关闭时表示遍历完成
+// 如果发生错误，会发送一个带 Err 的结果，然后关闭 channel
+func (l *Lister) ListObjectsStream(ctx context.Context, bucketName, prefix string, recursive bool) <-chan ObjectResult {
+	resultCh := make(chan ObjectResult, 20)
 
-	for object := range objectCh {
-		if object.Err != nil {
-			return fmt.Errorf("列出对象失败: %w", object.Err)
+	go func() {
+		defer close(resultCh)
+
+		opts := minio.ListObjectsOptions{
+			Recursive: recursive,
+			Prefix:    prefix,
 		}
 
-		fn(ObjectInfo{
-			Key:          object.Key,
-			Size:         object.Size,
-			LastModified: object.LastModified,
-			ETag:         object.ETag,
-			ContentType:  object.ContentType,
-			IsDir:        strings.HasSuffix(object.Key, "/") && object.Size == 0,
-		})
-	}
+		objectCh := l.client.ListObjects(ctx, bucketName, opts)
 
-	return nil
+		for object := range objectCh {
+			if object.Err != nil {
+				resultCh <- ObjectResult{
+					Err: fmt.Errorf("列出对象失败: %w", object.Err),
+				}
+				return
+			}
+
+			resultCh <- ObjectResult{
+				Object: ObjectInfo{
+					Key:          object.Key,
+					Size:         object.Size,
+					LastModified: object.LastModified,
+					ETag:         object.ETag,
+					ContentType:  object.ContentType,
+					IsDir:        strings.HasSuffix(object.Key, "/") && object.Size == 0,
+				},
+			}
+		}
+	}()
+
+	return resultCh
 }
 
 // List 列出存储桶中的对象（CLI 直接输出）

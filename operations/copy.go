@@ -61,6 +61,7 @@ func (c *Copier) Copy(ctx context.Context, srcBucket, srcObject, destBucket, des
 }
 
 // CopyDirectory 递归复制整个目录，返回结构化数据
+// 使用流式方式列出对象，边列出边复制
 // concurrent 参数指定并发数，为 0 时逐个复制
 func (c *Copier) CopyDirectory(ctx context.Context, srcBucket, srcPrefix, destBucket, destPrefix string, concurrent int) (*BatchCopyResult, error) {
 	// 确保 srcPrefix 以 / 结尾表示目录
@@ -68,33 +69,8 @@ func (c *Copier) CopyDirectory(ctx context.Context, srcBucket, srcPrefix, destBu
 		srcPrefix = srcPrefix + "/"
 	}
 
-	// 列出源目录下所有对象
 	lister := NewLister(c.client)
-	result, err := lister.ListObjects(ctx, srcBucket, srcPrefix, true)
-	if err != nil {
-		return nil, fmt.Errorf("列出源目录失败: %w", err)
-	}
-
-	if len(result.Objects) == 0 {
-		return nil, fmt.Errorf("源目录为空或不存在: %s/%s", srcBucket, srcPrefix)
-	}
-
-	// 过滤出需要复制的对象，构建复制任务列表
-	var tasks []copyTask
-	for _, obj := range result.Objects {
-		if obj.IsDir {
-			continue
-		}
-		relPath := strings.TrimPrefix(obj.Key, srcPrefix)
-		if relPath == obj.Key {
-			continue
-		}
-		destObject := path.Join(destPrefix, relPath)
-		if destPrefix == "" {
-			destObject = relPath
-		}
-		tasks = append(tasks, copyTask{srcKey: obj.Key, dstKey: destObject})
-	}
+	objectCh := lister.ListObjectsStream(ctx, srcBucket, srcPrefix, true)
 
 	batchResult := &BatchCopyResult{
 		SrcBucket:  srcBucket,
@@ -103,85 +79,111 @@ func (c *Copier) CopyDirectory(ctx context.Context, srcBucket, srcPrefix, destBu
 		DestPrefix: destPrefix,
 	}
 
+	bar := NewProgressBar(0, "复制中") // 初始总数为 0，流式增加
+
 	if concurrent > 0 {
 		// 并发复制
-		c.copyConcurrent(ctx, srcBucket, destBucket, tasks, batchResult, concurrent)
-	} else {
-		// 逐个复制
-		c.copySequential(ctx, srcBucket, destBucket, tasks, batchResult)
-	}
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		sem := make(chan struct{}, concurrent)
 
-	return batchResult, nil
-}
+		for result := range objectCh {
+			if result.Err != nil {
+				mu.Lock()
+				batchResult.Failed++
+				batchResult.Errors = append(batchResult.Errors, CopyError{
+					SrcKey: srcPrefix,
+					Error:  result.Err.Error(),
+				})
+				mu.Unlock()
+				continue
+			}
+			if result.Object.IsDir {
+				continue
+			}
 
-// copyTask 复制任务
-type copyTask struct {
-	srcKey string
-	dstKey string
-}
+			// 计算目标路径
+			relPath := strings.TrimPrefix(result.Object.Key, srcPrefix)
+			if relPath == result.Object.Key {
+				continue
+			}
+			destObject := path.Join(destPrefix, relPath)
+			if destPrefix == "" {
+				destObject = relPath
+			}
 
-// copySequential 逐个复制
-func (c *Copier) copySequential(ctx context.Context, srcBucket, destBucket string, tasks []copyTask, result *BatchCopyResult) {
-	bar := NewProgressBar(len(tasks), "复制中")
-	for _, task := range tasks {
-		copyResult, err := c.CopyObject(ctx, srcBucket, task.srcKey, destBucket, task.dstKey)
-		if err != nil {
-			result.Failed++
-			result.Errors = append(result.Errors, CopyError{
-				SrcKey: task.srcKey,
-				DstKey: task.dstKey,
-				Error:  err.Error(),
-			})
-			bar.Increment()
-			continue
+			bar.AddTotal(1) // 动态增加总数
+
+			wg.Add(1)
+			go func(srcKey, dstKey string) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+
+				copyResult, err := c.CopyObject(ctx, srcBucket, srcKey, destBucket, dstKey)
+
+				mu.Lock()
+				if err != nil {
+					batchResult.Failed++
+					batchResult.Errors = append(batchResult.Errors, CopyError{
+						SrcKey: srcKey,
+						DstKey: dstKey,
+						Error:  err.Error(),
+					})
+				} else {
+					batchResult.Success++
+					batchResult.Results = append(batchResult.Results, *copyResult)
+				}
+				bar.Increment()
+				mu.Unlock()
+			}(result.Object.Key, destObject)
 		}
-		result.Success++
-		result.Results = append(result.Results, *copyResult)
-		bar.Increment()
-	}
-	bar.Done()
-}
 
-// copyConcurrent 并发复制
-func (c *Copier) copyConcurrent(ctx context.Context, srcBucket, destBucket string, tasks []copyTask, result *BatchCopyResult, concurrent int) {
-	var wg sync.WaitGroup
-	var mu sync.Mutex
+		wg.Wait()
+	} else {
+		// 顺序复制
+		for result := range objectCh {
+			if result.Err != nil {
+				batchResult.Failed++
+				batchResult.Errors = append(batchResult.Errors, CopyError{
+					SrcKey: srcPrefix,
+					Error:  result.Err.Error(),
+				})
+				continue
+			}
+			if result.Object.IsDir {
+				continue
+			}
 
-	bar := NewProgressBar(len(tasks), "复制中")
+			relPath := strings.TrimPrefix(result.Object.Key, srcPrefix)
+			if relPath == result.Object.Key {
+				continue
+			}
+			destObject := path.Join(destPrefix, relPath)
+			if destPrefix == "" {
+				destObject = relPath
+			}
 
-	// 使用信号量控制并发数
-	sem := make(chan struct{}, concurrent)
+			bar.AddTotal(1)
 
-	for _, task := range tasks {
-		wg.Add(1)
-		go func(t copyTask) {
-			defer wg.Done()
-
-			// 获取信号量
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			copyResult, err := c.CopyObject(ctx, srcBucket, t.srcKey, destBucket, t.dstKey)
-
-			mu.Lock()
+			copyResult, err := c.CopyObject(ctx, srcBucket, result.Object.Key, destBucket, destObject)
 			if err != nil {
-				result.Failed++
-				result.Errors = append(result.Errors, CopyError{
-					SrcKey: t.srcKey,
-					DstKey: t.dstKey,
+				batchResult.Failed++
+				batchResult.Errors = append(batchResult.Errors, CopyError{
+					SrcKey: result.Object.Key,
+					DstKey: destObject,
 					Error:  err.Error(),
 				})
 			} else {
-				result.Success++
-				result.Results = append(result.Results, *copyResult)
+				batchResult.Success++
+				batchResult.Results = append(batchResult.Results, *copyResult)
 			}
 			bar.Increment()
-			mu.Unlock()
-		}(task)
+		}
 	}
 
-	wg.Wait()
 	bar.Done()
+	return batchResult, nil
 }
 
 // CopyDir 递归复制整个目录（CLI 直接输出）

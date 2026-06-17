@@ -509,7 +509,18 @@ func loadObjectsStreamingCmd(lister *operations.Lister, bucket, prefix string, c
 		batchCount := 0
 		totalCount := 0
 
-		err := lister.ListObjectsStream(context.Background(), bucket, prefix, false, func(obj operations.ObjectInfo) {
+		resultCh := lister.ListObjectsStream(context.Background(), bucket, prefix, false)
+		for result := range resultCh {
+			if result.Err != nil {
+				path := bucket
+				if prefix != "" {
+					path = bucket + "/" + prefix
+				}
+				ch <- listStreamMsg{done: true, err: result.Err, path: path, bucket: bucket, prefix: prefix}
+				return
+			}
+
+			obj := result.Object
 			item := pathItem{
 				name:         obj.Key,
 				isBucket:     false,
@@ -537,7 +548,7 @@ func loadObjectsStreamingCmd(lister *operations.Lister, bucket, prefix string, c
 				batch = nil
 				batchCount = 0
 			}
-		})
+		}
 
 		// 发送剩余的
 		if len(batch) > 0 {
@@ -558,7 +569,7 @@ func loadObjectsStreamingCmd(lister *operations.Lister, bucket, prefix string, c
 		if prefix != "" {
 			path = bucket + "/" + prefix
 		}
-		ch <- listStreamMsg{done: true, err: err, path: path, bucket: bucket, prefix: prefix}
+		ch <- listStreamMsg{done: true, path: path, bucket: bucket, prefix: prefix}
 	}()
 
 	// 返回第一个 Cmd：从 channel 读第一条消息
