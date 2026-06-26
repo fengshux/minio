@@ -108,8 +108,9 @@ func NewRootCmd() *cobra.Command {
 func NewListCmd() *cobra.Command {
 	var recursive bool
 	cmd := &cobra.Command{
-		Use:   "list bucket/prefix",
-		Short: "列出存储桶中的对象",
+		Use:     "list bucket/prefix",
+		Aliases: []string{"ls"},
+		Short:   "列出存储桶中的对象",
 		Long: `列出指定存储桶中的所有对象，可选择按前缀过滤和递归列出
 
 参数:

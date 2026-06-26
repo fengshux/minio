@@ -116,7 +116,8 @@ func (l *Lister) List(ctx context.Context, bucketName, prefix string, recursive 
 		return
 	}
 	for _, obj := range result.Objects {
-		fmt.Printf("对象: %s\n  大小: %.2f MB\n  最后修改: %s\n  ETag: %s\n",
+		fmt.Printf("对象: %s/%s\n  大小: %.2f MB\n  最后修改: %s\n  ETag: %s\n",
+			bucketName,
 			obj.Key,
 			float64(obj.Size)/1024/1024,
 			obj.LastModified.Local().Format("2006-01-02 15:04:05"),
