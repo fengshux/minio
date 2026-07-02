@@ -176,21 +176,31 @@ func NewStatCmd() *cobra.Command {
 // NewGetCmd 创建 get 子命令
 func NewGetCmd() *cobra.Command {
 	var output string
+	var recursive bool
+	var concurrent int
 	cmd := &cobra.Command{
-		Use:   "get bucket/object",
-		Short: "下载对象到本地",
-		Long: `从存储桶下载指定对象到本地文件
+		Use:   "get bucket/object [local-dir]",
+		Short: "下载对象或目录到本地",
+		Long: `从存储桶下载指定对象或目录到本地
 
 参数:
-  bucket/object  存储桶名称和对象路径
+  bucket/object  存储桶名称和对象路径或目录前缀
+  local-dir      本地保存目录（仅递归下载时使用，默认: 当前目录）
 
 选项:
-  -o, --output  本地保存路径（默认: 对象名称的最后一部分）
+  -o, --output     本地保存路径（下载单个对象时使用）
+  -r, --recursive  递归下载整个目录
+  -c, --concurrent 并发下载数量（仅与 -r 一起使用，默认 0 表示逐个下载）
 
 示例:
+  # 下载单个对象
   minio get my-bucket/file.txt                             # 保存为 file.txt
-  minio get my-bucket/photos/image.jpg -o /tmp/photo.jpg   # 指定路径`,
-		Args: cobra.ExactArgs(1),
+  minio get my-bucket/photos/image.jpg -o /tmp/photo.jpg   # 指定路径
+
+  # 递归下载目录
+  minio get my-bucket/photos/ ./local-photos/ -r           # 逐个下载
+  minio get my-bucket/docs/ ./docs/ -r -c 5                # 5个并发下载`,
+		Args: cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			bucket, objectName, err := parseBucketPath(args[0])
 			if err != nil {
@@ -201,11 +211,25 @@ func NewGetCmd() *cobra.Command {
 				fmt.Println(err)
 				os.Exit(1)
 			}
+
 			getter := operations.NewGetter(client)
-			getter.Get(cmd.Context(), bucket, objectName, output)
+
+			if recursive {
+				// 递归下载目录
+				localDir := "."
+				if len(args) > 1 {
+					localDir = args[1]
+				}
+				getter.GetDir(cmd.Context(), bucket, objectName, localDir, concurrent)
+			} else {
+				// 下载单个对象
+				getter.Get(cmd.Context(), bucket, objectName, output)
+			}
 		},
 	}
-	cmd.Flags().StringVarP(&output, "output", "o", "", "本地保存路径（默认: 对象名称的最后一部分）")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "本地保存路径（下载单个对象时使用）")
+	cmd.Flags().BoolVarP(&recursive, "recursive", "r", false, "递归下载整个目录")
+	cmd.Flags().IntVarP(&concurrent, "concurrent", "c", 0, "并发下载数量（仅与 -r 一起使用）")
 	return cmd
 }
 

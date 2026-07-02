@@ -87,3 +87,21 @@ type DeleteError struct {
 	Key   string
 	Error string
 }
+
+// BatchDownloadResult 批量下载结果
+type BatchDownloadResult struct {
+	Bucket    string
+	Prefix    string
+	LocalDir  string
+	Success   int
+	Failed    int
+	Results   []DownloadResult
+	Errors    []DownloadError
+}
+
+// DownloadError 下载错误
+type DownloadError struct {
+	Key       string
+	LocalPath string
+	Error     string
+}

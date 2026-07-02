@@ -137,6 +137,10 @@ minio stat my-bucket/photos/2024/image.jpg
 ```bash
 minio get bucket/object               # 下载对象（默认保存为对象名）
 minio get bucket/object -o /tmp/file  # 指定保存路径
+
+# 递归下载目录
+minio get bucket/photos/ ./local-photos/ -r      # 逐个下载
+minio get bucket/docs/ ./docs/ -r -c 5           # 5个并发下载
 ```
 
 #### 输出对象内容
