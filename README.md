@@ -155,6 +155,10 @@ minio cat my-bucket/logs/app.log
 ```bash
 minio put bucket/object local-file    # 上传文件
 minio put bucket/data.json ./data.json -t application/json  # 指定 Content-Type
+
+# 递归上传目录
+minio put bucket/photos/ ./local-photos/ -r      # 逐个上传
+minio put bucket/docs/ ./docs/ -r -c 5           # 5个并发上传
 ```
 
 #### 生成签名下载链接

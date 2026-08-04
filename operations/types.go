@@ -105,3 +105,21 @@ type DownloadError struct {
 	LocalPath string
 	Error     string
 }
+
+// BatchUploadResult 批量上传结果
+type BatchUploadResult struct {
+	Bucket   string
+	Prefix   string
+	LocalDir string
+	Success  int
+	Failed   int
+	Results  []UploadResult
+	Errors   []UploadError
+}
+
+// UploadError 上传错误
+type UploadError struct {
+	LocalPath string
+	Key       string
+	Error     string
+}

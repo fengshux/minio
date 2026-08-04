@@ -266,22 +266,28 @@ func NewCatCmd() *cobra.Command {
 // NewPutCmd 创建 put 子命令
 func NewPutCmd() *cobra.Command {
 	var contentType string
+	var recursive bool
+	var concurrent int
 	cmd := &cobra.Command{
 		Use:   "put bucket/object local-file",
-		Short: "上传本地文件到存储桶",
-		Long: `将本地文件上传到指定存储桶
+		Short: "上传本地文件或目录到存储桶",
+		Long: `将本地文件或目录上传到指定存储桶
 
 参数:
-  bucket/object  存储桶名称和对象存储路径
-  local-file     本地文件路径
+  bucket/object  存储桶名称和对象存储路径（或目录前缀，与 -r 一起使用）
+  local-file     本地文件路径或目录路径（与 -r 一起使用）
 
 选项:
-  -t, --type  Content-Type（默认: 自动检测）
+  -t, --type       Content-Type（默认: 自动检测，仅单文件上传时有效）
+  -r, --recursive  递归上传整个目录
+  -c, --concurrent 并发上传数量（仅与 -r 一起使用，默认 0 表示逐个上传）
 
 示例:
   minio put my-bucket/file.txt ./local.txt
   minio put my-bucket/photos/image.jpg ./photo.jpg
-  minio put my-bucket/data.json ./data.json -t application/json`,
+  minio put my-bucket/data.json ./data.json -t application/json
+  minio put my-bucket/photos/ ./local-photos/ -r           # 递归上传目录
+  minio put my-bucket/docs/ ./docs/ -r -c 5                # 5个并发上传`,
 		Args: cobra.ExactArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {
 			bucket, objectName, err := parseBucketPath(args[0])
@@ -295,10 +301,17 @@ func NewPutCmd() *cobra.Command {
 			}
 			localPath := args[1]
 			putter := operations.NewPutter(client)
-			putter.Put(cmd.Context(), bucket, objectName, localPath, contentType)
+
+			if recursive {
+				putter.PutDir(cmd.Context(), bucket, objectName, localPath, concurrent)
+			} else {
+				putter.Put(cmd.Context(), bucket, objectName, localPath, contentType)
+			}
 		},
 	}
 	cmd.Flags().StringVarP(&contentType, "type", "t", "", "Content-Type（默认: 自动检测）")
+	cmd.Flags().BoolVarP(&recursive, "recursive", "r", false, "递归上传整个目录")
+	cmd.Flags().IntVarP(&concurrent, "concurrent", "c", 0, "并发上传数量（仅与 -r 一起使用）")
 	return cmd
 }
 

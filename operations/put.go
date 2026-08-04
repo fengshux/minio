@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/minio/minio-go/v7"
 )
@@ -80,6 +81,138 @@ func (p *Putter) Put(ctx context.Context, bucketName, objectName, localPath, con
 
 	fmt.Printf("上传成功: %s -> %s/%s (大小: %d 字节, ETag: %s)\n",
 		localPath, result.Bucket, result.Key, result.Size, result.ETag)
+}
+
+// UploadDirectory 递归上传本地目录到存储桶，返回结构化数据
+// localDir 为本地目录路径，prefix 为存储桶中的对象前缀
+// concurrent 参数指定并发数，为 0 时逐个上传
+func (p *Putter) UploadDirectory(ctx context.Context, bucketName, prefix, localDir string, concurrent int) (*BatchUploadResult, error) {
+	// 确保 prefix 以 / 结尾
+	if prefix != "" && !strings.HasSuffix(prefix, "/") {
+		prefix = prefix + "/"
+	}
+
+	// 验证本地目录
+	dirInfo, err := os.Stat(localDir)
+	if err != nil {
+		return nil, fmt.Errorf("目录不存在或无法访问: %w", err)
+	}
+	if !dirInfo.IsDir() {
+		return nil, fmt.Errorf("指定的路径不是目录: %s", localDir)
+	}
+
+	// 收集所有文件
+	var files []string
+	err = filepath.Walk(localDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			files = append(files, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("遍历目录失败: %w", err)
+	}
+
+	if len(files) == 0 {
+		return nil, fmt.Errorf("目录为空: %s", localDir)
+	}
+
+	batchResult := &BatchUploadResult{
+		Bucket:   bucketName,
+		Prefix:   prefix,
+		LocalDir: localDir,
+	}
+
+	bar := NewProgressBar(len(files), "上传中")
+
+	if concurrent > 0 {
+		// 并发上传
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		sem := make(chan struct{}, concurrent)
+
+		for _, filePath := range files {
+			wg.Add(1)
+			go func(fp string) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+
+				// 计算相对路径和对象名
+				relPath, _ := filepath.Rel(localDir, fp)
+				objectName := prefix + filepath.ToSlash(relPath)
+				contentType := detectContentType(fp)
+
+				result, err := p.UploadObject(ctx, bucketName, objectName, fp, contentType, nil)
+
+				mu.Lock()
+				if err != nil {
+					batchResult.Failed++
+					batchResult.Errors = append(batchResult.Errors, UploadError{
+						LocalPath: fp,
+						Key:       objectName,
+						Error:     err.Error(),
+					})
+				} else {
+					batchResult.Success++
+					batchResult.Results = append(batchResult.Results, *result)
+				}
+				bar.Increment()
+				mu.Unlock()
+			}(filePath)
+		}
+
+		wg.Wait()
+	} else {
+		// 顺序上传
+		for _, filePath := range files {
+			relPath, _ := filepath.Rel(localDir, filePath)
+			objectName := prefix + filepath.ToSlash(relPath)
+			contentType := detectContentType(filePath)
+
+			result, err := p.UploadObject(ctx, bucketName, objectName, filePath, contentType, nil)
+			if err != nil {
+				batchResult.Failed++
+				batchResult.Errors = append(batchResult.Errors, UploadError{
+					LocalPath: filePath,
+					Key:       objectName,
+					Error:     err.Error(),
+				})
+			} else {
+				batchResult.Success++
+				batchResult.Results = append(batchResult.Results, *result)
+			}
+			bar.Increment()
+		}
+	}
+
+	bar.Done()
+	return batchResult, nil
+}
+
+// PutDir 递归上传本地目录到存储桶（CLI 直接输出）
+// concurrent 参数指定并发数，为 0 时逐个上传
+func (p *Putter) PutDir(ctx context.Context, bucketName, prefix, localDir string, concurrent int) {
+	result, err := p.UploadDirectory(ctx, bucketName, prefix, localDir, concurrent)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+
+	fmt.Printf("目录上传完成: %s -> %s/%s\n", localDir, bucketName, prefix)
+	if concurrent > 0 {
+		fmt.Printf("并发数: %d, ", concurrent)
+	}
+	fmt.Printf("成功: %d, 失败: %d\n", result.Success, result.Failed)
+
+	if len(result.Errors) > 0 {
+		fmt.Println("\n失败的文件:")
+		for _, e := range result.Errors {
+			fmt.Printf("  %s -> %s: %s\n", e.LocalPath, e.Key, e.Error)
+		}
+	}
 }
 
 // detectContentType 根据文件扩展名检测 Content-Type
