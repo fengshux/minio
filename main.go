@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"osc/commands"
+	"s3m/commands"
 )
 
 func main() {

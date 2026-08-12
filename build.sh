@@ -1,3 +1,3 @@
 #!/bin/bash
 
-GOOS=linux GOARCH=amd64 go build -o osc .
+GOOS=linux GOARCH=amd64 go build -o s3m .

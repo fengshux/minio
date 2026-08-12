@@ -1,4 +1,4 @@
-module osc
+module s3m
 
 go 1.25.7
 

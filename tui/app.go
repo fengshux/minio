@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"osc/operations"
+	"s3m/operations"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
@@ -621,9 +621,9 @@ func (m Model) renderSeparator() string {
 }
 
 func (m Model) renderTitle() string {
-	title := "OSC Explorer"
+	title := "S3M Explorer"
 	if m.currentPath != "/" && m.currentPath != "" {
-		title = fmt.Sprintf("OSC Explorer - %s", m.currentPath)
+		title = fmt.Sprintf("S3M Explorer - %s", m.currentPath)
 	}
 	return titleStyle.Render(title)
 }

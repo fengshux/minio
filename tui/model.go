@@ -7,7 +7,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
 	"github.com/minio/minio-go/v7"
-	"osc/operations"
+	"s3m/operations"
 )
 
 // ViewState 视图状态

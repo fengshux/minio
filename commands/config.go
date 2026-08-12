@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"osc/crypto"
+	"s3m/crypto"
 
 	"github.com/spf13/cobra"
 )
@@ -17,7 +17,7 @@ func NewConfigCmd() *cobra.Command {
 	configCmd := &cobra.Command{
 		Use:   "config",
 		Short: "配置管理",
-		Long: `管理 OSC 客户端配置，敏感信息加密存储
+		Long: `管理 S3M 客户端配置，敏感信息加密存储
 
 子命令:
   set     设置配置（加密存储，绑定当前机器）
@@ -40,7 +40,7 @@ func NewConfigSetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "set",
 		Short: "设置配置",
-		Long: `设置 OSC 客户端配置，敏感信息加密存储到 ~/.config/osc/osc.conf
+		Long: `设置 S3M 客户端配置，敏感信息加密存储到 ~/.config/s3m/s3m.conf
 
 加密绑定当前机器，配置文件无法在其他机器解密。`,
 		Run: func(cmd *cobra.Command, args []string) {
@@ -69,12 +69,12 @@ func readInput(prompt string) string {
 
 func getConfigPath() string {
 	home, _ := os.UserHomeDir()
-	return home + "/.config/osc/osc.conf"
+	return home + "/.config/s3m/s3m.conf"
 }
 
 func ensureConfigDir() error {
 	home, _ := os.UserHomeDir()
-	dir := home + "/.config/osc"
+	dir := home + "/.config/s3m"
 	return os.MkdirAll(dir, 0700)
 }
 
