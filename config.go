@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"minio/crypto"
@@ -90,6 +91,12 @@ func parseConfigFile(path string) (*Config, error) {
 			accesskeyEnc = value
 		case "secretkey":
 			secretkeyEnc = value
+		case "usessl", "ssl":
+			useSSL, err := strconv.ParseBool(value)
+			if err != nil {
+				return nil, fmt.Errorf("配置项 %s 值无效: %s（应为 true/false）", key, value)
+			}
+			cfg.UseSSL = useSSL
 		}
 	}
 

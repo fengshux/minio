@@ -6,10 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/minio/minio-go/v7"
-	"github.com/spf13/cobra"
 	"minio/operations"
 	"minio/tui"
+
+	"github.com/minio/minio-go/v7"
+	"github.com/spf13/cobra"
 )
 
 // parseBucketPath 解析 bucket/path 格式的参数
@@ -65,6 +66,7 @@ func NewRootCmd() *cobra.Command {
 
   配置文件格式:
     endpoint=<s3-endpoint>
+		usessl=<true|false>   # 可选，默认 true
     accesskey=<access-key>
     secretkey=<secret-key>`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {

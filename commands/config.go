@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
-	"github.com/spf13/cobra"
 	"minio/crypto"
+
+	"github.com/spf13/cobra"
 )
 
 // NewConfigCmd 创建 config 子命令
@@ -52,7 +54,7 @@ func NewConfigShowCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "show",
 		Short: "查看配置",
-		Long: `查看当前配置，解密后显示敏感信息`,
+		Long:  `查看当前配置，解密后显示敏感信息`,
 		Run: func(cmd *cobra.Command, args []string) {
 			showConfig()
 		},
@@ -81,10 +83,21 @@ func setConfig() {
 	endpoint := readInput("Endpoint: ")
 	accesskey := readInput("AccessKey: ")
 	secretkey := readInput("SecretKey: ")
+	useSSLInput := readInput("UseSSL (true/false, 默认 true): ")
 
 	if endpoint == "" || accesskey == "" || secretkey == "" {
 		fmt.Println("错误: 所有字段都必须填写")
 		return
+	}
+
+	useSSL := true
+	if useSSLInput != "" {
+		parsed, err := strconv.ParseBool(useSSLInput)
+		if err != nil {
+			fmt.Println("错误: UseSSL 必须是 true 或 false")
+			return
+		}
+		useSSL = parsed
 	}
 
 	encryptedAccessKey, err := crypto.Encrypt(accesskey)
@@ -105,8 +118,8 @@ func setConfig() {
 	}
 
 	configPath := getConfigPath()
-	content := fmt.Sprintf("endpoint=%s\naccesskey=enc:aes:%s\nsecretkey=enc:aes:%s\n",
-		endpoint, encryptedAccessKey, encryptedSecretKey)
+	content := fmt.Sprintf("endpoint=%s\nusessl=%t\naccesskey=enc:aes:%s\nsecretkey=enc:aes:%s\n",
+		endpoint, useSSL, encryptedAccessKey, encryptedSecretKey)
 
 	if err := os.WriteFile(configPath, []byte(content), 0600); err != nil {
 		fmt.Printf("错误: 写入配置文件失败: %v\n", err)
@@ -127,6 +140,7 @@ func showConfig() {
 
 	lines := strings.Split(string(content), "\n")
 	var endpoint, accesskeyEnc, secretkeyEnc string
+	useSSL := true
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -141,6 +155,13 @@ func showConfig() {
 		switch key {
 		case "endpoint":
 			endpoint = value
+		case "usessl", "ssl":
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				fmt.Printf("错误: 配置项 %s 值无效: %s（应为 true/false）\n", key, value)
+				return
+			}
+			useSSL = parsed
 		case "accesskey":
 			accesskeyEnc = value
 		case "secretkey":
@@ -156,6 +177,7 @@ func showConfig() {
 	if !crypto.IsEncrypted(accesskeyEnc) || !crypto.IsEncrypted(secretkeyEnc) {
 		fmt.Println("警告: 配置未加密")
 		fmt.Printf("Endpoint: %s\n", endpoint)
+		fmt.Printf("UseSSL: %t\n", useSSL)
 		fmt.Printf("AccessKey: %s\n", accesskeyEnc)
 		fmt.Printf("SecretKey: %s\n", secretkeyEnc)
 		return
@@ -178,6 +200,7 @@ func showConfig() {
 
 	fmt.Println("配置信息:")
 	fmt.Printf("  Endpoint:  %s\n", endpoint)
+	fmt.Printf("  UseSSL:    %t\n", useSSL)
 	fmt.Printf("  AccessKey: %s\n", accesskey)
 	fmt.Printf("  SecretKey: %s\n", secretkey)
 }

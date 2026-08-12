@@ -25,6 +25,7 @@ minio config set
 
 交互式输入：
 - Endpoint: S3 服务端点
+- UseSSL: 是否启用 HTTPS（可选，默认 true）
 - AccessKey: 访问密钥（加密存储）
 - SecretKey: 密钥（加密存储）
 
@@ -32,9 +33,14 @@ minio config set
 
 ```ini
 endpoint=s3-internal.cn-north-1-bjps.jdcloud-oss.com
+usessl=true
 accesskey=enc:aes:加密后的密文
 secretkey=enc:aes:加密后的密文
 ```
+
+`usessl` 为可选项：
+- 不配置时默认使用 `true`（HTTPS）
+- 配置后按配置值使用（`true` 或 `false`）
 
 ### 配置管理命令
 
@@ -48,6 +54,7 @@ minio config show   # 查看配置（解密显示）
 
 ```ini
 endpoint=s3-internal.cn-north-1-bjps.jdcloud-oss.com
+usessl=true
 accesskey=your-access-key
 secretkey=your-secret-key
 ```
