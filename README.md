@@ -1,6 +1,6 @@
-# MinIO CLI
+# OSC CLI
 
-一个用于管理 MinIO/S3 对象存储的命令行工具，支持命令行模式和 TUI 交互模式。
+一个用于管理 S3 对象存储的命令行工具，支持命令行模式和 TUI 交互模式。
 
 ## 功能特性
 
@@ -12,7 +12,7 @@
 ## 安装
 
 ```bash
-go build -o minio
+go build -o osc
 ```
 
 ## 配置
@@ -20,7 +20,7 @@ go build -o minio
 ### 推荐方式：使用 config 命令（加密存储）
 
 ```bash
-minio config set
+osc config set
 ```
 
 交互式输入：
@@ -29,7 +29,7 @@ minio config set
 - AccessKey: 访问密钥（加密存储）
 - SecretKey: 密钥（加密存储）
 
-配置文件保存到 `~/.config/minio/minio.conf`，格式如下：
+配置文件保存到 `~/.config/osc/osc.conf`，格式如下：
 
 ```ini
 endpoint=s3-internal.cn-north-1-bjps.jdcloud-oss.com
@@ -45,8 +45,8 @@ secretkey=enc:aes:加密后的密文
 ### 配置管理命令
 
 ```bash
-minio config set    # 设置配置（加密存储）
-minio config show   # 查看配置（解密显示）
+osc config set    # 设置配置（加密存储）
+osc config show   # 查看配置（解密显示）
 ```
 
 
@@ -59,30 +59,30 @@ accesskey=your-access-key
 secretkey=your-secret-key
 ```
 
-**注意**: 明文配置不推荐，建议使用 `minio config set` 加密存储。
+**注意**: 明文配置不推荐，建议使用 `osc config set` 加密存储。
 
 ### 配置文件查找优先级
 
 1. `--config` 参数指定的路径
-2. 当前目录 `./minio.conf`
-3. 用户目录 `~/.config/minio/minio.conf`
-4. 系统目录 `/etc/minio/minio.conf`
+2. 当前目录 `./osc.conf`
+3. 用户目录 `~/.config/osc/osc.conf`
+4. 系统目录 `/etc/osc/osc.conf`
 
 ## 使用方式
 
 ### TUI 交互模式
 
-直接运行 `minio` 进入 TUI 界面:
+直接运行 `osc` 进入 TUI 界面:
 
 ```bash
-./minio
+./osc
 ```
 
 **界面布局:**
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ MinIO Explorer - bucket-name/prefix/                     F1:帮助 │
+│ OSC Explorer - bucket-name/prefix/                       F1:帮助 │
 ├────────────────────────────────────────┬─────────────────────────┤
 │  Name                 Size    Modified │ 对象详情: file.txt      │
 │  📁 photos/                        -   │ 大小: 1.2 MB            │
@@ -126,82 +126,82 @@ secretkey=your-secret-key
 #### 列出对象
 
 ```bash
-minio list bucket/prefix              # 列出根级对象
-minio list bucket/photos/             # 列出指定前缀下的对象
-minio list bucket/ -r                 # 递归列出所有对象
-minio list bucket/photos/ -r          # 递归列出指定前缀下所有对象
+osc list bucket/prefix              # 列出根级对象
+osc list bucket/photos/             # 列出指定前缀下的对象
+osc list bucket/ -r                 # 递归列出所有对象
+osc list bucket/photos/ -r          # 递归列出指定前缀下所有对象
 ```
 
 #### 查询对象元数据
 
 ```bash
-minio stat bucket/object              # 获取对象详细信息
-minio stat my-bucket/photos/2024/image.jpg
+osc stat bucket/object              # 获取对象详细信息
+osc stat my-bucket/photos/2024/image.jpg
 ```
 
 #### 下载对象
 
 ```bash
-minio get bucket/object               # 下载对象（默认保存为对象名）
-minio get bucket/object -o /tmp/file  # 指定保存路径
+osc get bucket/object               # 下载对象（默认保存为对象名）
+osc get bucket/object -o /tmp/file  # 指定保存路径
 
 # 递归下载目录
-minio get bucket/photos/ ./local-photos/ -r      # 逐个下载
-minio get bucket/docs/ ./docs/ -r -c 5           # 5个并发下载
+osc get bucket/photos/ ./local-photos/ -r      # 逐个下载
+osc get bucket/docs/ ./docs/ -r -c 5           # 5个并发下载
 ```
 
 #### 输出对象内容
 
 ```bash
-minio cat bucket/object               # 输出对象内容到 stdout
-minio cat my-bucket/logs/app.log
+osc cat bucket/object               # 输出对象内容到 stdout
+osc cat my-bucket/logs/app.log
 ```
 
 #### 上传文件
 
 ```bash
-minio put bucket/object local-file    # 上传文件
-minio put bucket/data.json ./data.json -t application/json  # 指定 Content-Type
+osc put bucket/object local-file    # 上传文件
+osc put bucket/data.json ./data.json -t application/json  # 指定 Content-Type
 
 # 递归上传目录
-minio put bucket/photos/ ./local-photos/ -r      # 逐个上传
-minio put bucket/docs/ ./docs/ -r -c 5           # 5个并发上传
+osc put bucket/photos/ ./local-photos/ -r      # 逐个上传
+osc put bucket/docs/ ./docs/ -r -c 5           # 5个并发上传
 ```
 
 #### 生成签名下载链接
 
 ```bash
-minio sign bucket/object              # 生成签名链接（默认 7 天有效）
-minio sign bucket/object -e 24h       # 指定 24 小时有效
-minio sign bucket/object -e 1h        # 指定 1 小时有效
+osc sign bucket/object              # 生成签名链接（默认 7 天有效）
+osc sign bucket/object -e 24h       # 指定 24 小时有效
+osc sign bucket/object -e 1h        # 指定 1 小时有效
 ```
 
 #### 复制对象
 
 ```bash
-minio copy src-bucket/src-object dest-bucket/dest-object  # 复制单个对象
-minio copy bucket1/file.txt bucket2/backup/file.txt       # 示例
+osc copy src-bucket/src-object dest-bucket/dest-object  # 复制单个对象
+osc copy bucket1/file.txt bucket2/backup/file.txt       # 示例
 
 # 递归复制目录
-minio copy bucket1/photos/ bucket2/backup/photos/ -r      # 逐个复制
-minio copy bucket1/photos/ bucket2/backup/photos/ -r -c 5 # 5个并发复制
+osc copy bucket1/photos/ bucket2/backup/photos/ -r      # 逐个复制
+osc copy bucket1/photos/ bucket2/backup/photos/ -r -c 5 # 5个并发复制
 
 # 大文件分片复制（用于超过 5GB 的文件）
-minio copy bucket1/large.dat bucket2/large-copy.dat -b
-minio copy bucket1/large.dat bucket2/large-copy.dat --big
+osc copy bucket1/large.dat bucket2/large-copy.dat -b
+osc copy bucket1/large.dat bucket2/large-copy.dat --big
 ```
 
 #### 删除对象
 
 ```bash
-minio del bucket/object               # 删除单个对象（需确认）
-minio del bucket/object --force       # 删除单个对象（无需确认）
+osc del bucket/object               # 删除单个对象（需确认）
+osc del bucket/object --force       # 删除单个对象（无需确认）
 
 # 递归删除目录
-minio del bucket/photos/ -r                # 逐个删除（需确认）
-minio del bucket/photos/ -r -c 5           # 5个并发删除（需确认）
-minio del bucket/photos/ -r --force        # 逐个删除（无需确认）
-minio del bucket/photos/ -r -c 5 --force   # 5个并发删除（无需确认）
+osc del bucket/photos/ -r                # 逐个删除（需确认）
+osc del bucket/photos/ -r -c 5           # 5个并发删除（需确认）
+osc del bucket/photos/ -r --force        # 逐个删除（无需确认）
+osc del bucket/photos/ -r -c 5 --force   # 5个并发删除（无需确认）
 ```
 
 **删除确认提示：**
@@ -213,17 +213,17 @@ minio del bucket/photos/ -r -c 5 --force   # 5个并发删除（无需确认）
 ### 配置管理
 
 ```bash
-minio config set                      # 设置配置（加密存储）
-minio config show                     # 查看配置（解密显示）
+osc config set                      # 设置配置（加密存储）
+osc config show                     # 查看配置（解密显示）
 ```
 
 ## 项目结构
 
 ```
-minio/
+osc/
 ├── main.go           # 程序入口
 ├── config.go         # 配置文件解析（支持解密）
-├── client.go         # MinIO 客户端创建
+├── client.go         # OSC 客户端创建
 ├── crypto/
 │   └── crypto.go     # 加解密（PBKDF2 + AES-256-GCM）
 ├── commands/

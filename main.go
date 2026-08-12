@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"minio/commands"
+	"osc/commands"
 )
 
 func main() {

@@ -6,11 +6,12 @@ import (
 	"strings"
 	"time"
 
+	"osc/operations"
+
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/minio/minio-go/v7"
-	"minio/operations"
 )
 
 // Run 启动 TUI
@@ -63,7 +64,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		// 调整列表大小
-		listHeight := m.height - 8 // 留出标题栏、进度条、命令输入、状态栏
+		listHeight := m.height - 8                       // 留出标题栏、进度条、命令输入、状态栏
 		m.objectList.SetSize(m.width*60/100, listHeight) // 左侧 60%
 		return m, nil
 
@@ -161,10 +162,7 @@ func (m Model) View() tea.View {
 	// 状态栏
 	b.WriteString(m.renderStatusBar())
 
-	return tea.View{
-		Content:   b.String(),
-		AltScreen: true, // 启用 alt screen
-	}
+	return tea.NewView(b.String())
 }
 
 // handleKeyPress 处理按键
@@ -623,9 +621,9 @@ func (m Model) renderSeparator() string {
 }
 
 func (m Model) renderTitle() string {
-	title := "MinIO Explorer"
+	title := "OSC Explorer"
 	if m.currentPath != "/" && m.currentPath != "" {
-		title = fmt.Sprintf("MinIO Explorer - %s", m.currentPath)
+		title = fmt.Sprintf("OSC Explorer - %s", m.currentPath)
 	}
 	return titleStyle.Render(title)
 }

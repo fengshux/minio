@@ -1,4 +1,4 @@
-module minio
+module osc
 
 go 1.25.7
 

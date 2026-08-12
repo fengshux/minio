@@ -3,11 +3,11 @@ package tui
 import (
 	"time"
 
-	"github.com/minio/minio-go/v7"
 	"charm.land/bubbles/v2/list"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
-	"minio/operations"
+	"github.com/minio/minio-go/v7"
+	"osc/operations"
 )
 
 // ViewState 视图状态
@@ -89,16 +89,16 @@ type Model struct {
 // NewModel 创建 TUI 模型
 func NewModel(client *minio.Client) Model {
 	m := Model{
-		client:       client,
-		lister:       operations.NewLister(client),
-		stater:       operations.NewStater(client),
-		getter:       operations.NewGetter(client),
-		putter:       operations.NewPutter(client),
-		signer:       operations.NewSigner(client),
-		viewState:    ViewStateObjectList, // 根目录显示桶列表
-		focusState:   FocusList,
-		currentPath:  "/", // 初始为根目录
-		maxHistory:   50,
+		client:      client,
+		lister:      operations.NewLister(client),
+		stater:      operations.NewStater(client),
+		getter:      operations.NewGetter(client),
+		putter:      operations.NewPutter(client),
+		signer:      operations.NewSigner(client),
+		viewState:   ViewStateObjectList, // 根目录显示桶列表
+		focusState:  FocusList,
+		currentPath: "/", // 初始为根目录
+		maxHistory:  50,
 	}
 
 	// 初始化输入框

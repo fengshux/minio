@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"minio/crypto"
+	"osc/crypto"
 
 	"github.com/spf13/cobra"
 )
@@ -17,7 +17,7 @@ func NewConfigCmd() *cobra.Command {
 	configCmd := &cobra.Command{
 		Use:   "config",
 		Short: "配置管理",
-		Long: `管理 MinIO 客户端配置，敏感信息加密存储
+		Long: `管理 OSC 客户端配置，敏感信息加密存储
 
 子命令:
   set     设置配置（加密存储，绑定当前机器）
@@ -40,7 +40,7 @@ func NewConfigSetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "set",
 		Short: "设置配置",
-		Long: `设置 MinIO 客户端配置，敏感信息加密存储到 ~/.config/minio/minio.conf
+		Long: `设置 OSC 客户端配置，敏感信息加密存储到 ~/.config/osc/osc.conf
 
 加密绑定当前机器，配置文件无法在其他机器解密。`,
 		Run: func(cmd *cobra.Command, args []string) {
@@ -69,12 +69,12 @@ func readInput(prompt string) string {
 
 func getConfigPath() string {
 	home, _ := os.UserHomeDir()
-	return home + "/.config/minio/minio.conf"
+	return home + "/.config/osc/osc.conf"
 }
 
 func ensureConfigDir() error {
 	home, _ := os.UserHomeDir()
-	dir := home + "/.config/minio"
+	dir := home + "/.config/osc"
 	return os.MkdirAll(dir, 0700)
 }
 

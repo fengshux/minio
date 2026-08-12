@@ -9,10 +9,10 @@ import (
 	"strconv"
 	"strings"
 
-	"minio/crypto"
+	"osc/crypto"
 )
 
-// Config MinIO 客户端配置
+// Config OSC 客户端配置
 type Config struct {
 	Endpoint  string
 	AccessKey string
@@ -22,9 +22,9 @@ type Config struct {
 
 // 配置文件搜索路径（按优先级排序）
 var configPaths = []string{
-	"./minio.conf",
-	"~/.config/minio/minio.conf",
-	"/etc/minio/minio.conf",
+	"./osc.conf",
+	"~/.config/osc/osc.conf",
+	"/etc/osc/osc.conf",
 }
 
 // LoadConfig 从配置文件加载配置
@@ -46,7 +46,7 @@ func LoadConfig(configPath string) (*Config, error) {
 		}
 	}
 
-	return nil, errors.New("未找到配置文件，请使用 'minio config set' 创建配置")
+	return nil, errors.New("未找到配置文件，请使用 'osc config set' 创建配置")
 }
 
 // expandPath 展开 ~ 为用户主目录

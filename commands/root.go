@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"minio/operations"
-	"minio/tui"
+	"osc/operations"
+	"osc/tui"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/spf13/cobra"
@@ -54,15 +54,15 @@ var InitClient func(configPath string, debug bool) (*ClientWrapper, error)
 // NewRootCmd 创建根命令
 func NewRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
-		Use:   "minio",
-		Short: "MinIO/S3 对象存储管理工具",
-		Long: `用于管理 MinIO/S3 对象存储的命令行工具，支持列出、查询、下载对象等操作
+		Use:   "osc",
+		Short: "OSC/S3 对象存储管理工具",
+		Long: `用于管理 OSC/S3 对象存储的命令行工具，支持列出、查询、下载对象等操作
 
 配置文件:
   默认查找路径（按优先级）:
-    1. 当前目录 ./minio.conf
-    2. ~/.config/minio/minio.conf
-    3. /etc/minio/minio.conf
+    1. 当前目录 ./osc.conf
+    2. ~/.config/osc/osc.conf
+    3. /etc/osc/osc.conf
 
   配置文件格式:
     endpoint=<s3-endpoint>
@@ -87,7 +87,7 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 
-	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "配置文件路径（默认: ./minio.conf, ~/.config/minio/minio.conf, /etc/minio/minio.conf）")
+	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "配置文件路径（默认: ./osc.conf, ~/.config/osc/osc.conf, /etc/osc/osc.conf）")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "启用 HTTP 请求调试输出")
 
 	// 添加子命令
@@ -119,10 +119,10 @@ func NewListCmd() *cobra.Command {
   bucket/prefix  存储桶名称和可选的对象前缀（bucket/ 或 bucket/path/）
 
 示例:
-  minio list my-bucket/                # 列出根级对象
-  minio list my-bucket/photos/         # 列出 photos/ 前缀下的对象
-  minio list my-bucket/ -r             # 递归列出所有对象
-  minio list my-bucket/photos/ -r      # 递归列出 photos/ 下所有对象`,
+  osc list my-bucket/                # 列出根级对象
+  osc list my-bucket/photos/         # 列出 photos/ 前缀下的对象
+  osc list my-bucket/ -r             # 递归列出所有对象
+  osc list my-bucket/photos/ -r      # 递归列出 photos/ 下所有对象`,
 		Args: cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			bucket, prefix, err := parseBucketPath(args[0])
@@ -149,8 +149,8 @@ func NewStatCmd() *cobra.Command {
   bucket/object  存储桶名称和对象路径
 
 示例:
-  minio stat my-bucket/file.txt
-  minio stat my-bucket/photos/2024/image.jpg
+  osc stat my-bucket/file.txt
+  osc stat my-bucket/photos/2024/image.jpg
 
 输出格式:
   对象名: <key>
@@ -196,12 +196,12 @@ func NewGetCmd() *cobra.Command {
 
 示例:
   # 下载单个对象
-  minio get my-bucket/file.txt                             # 保存为 file.txt
-  minio get my-bucket/photos/image.jpg -o /tmp/photo.jpg   # 指定路径
+  osc get my-bucket/file.txt                             # 保存为 file.txt
+  osc get my-bucket/photos/image.jpg -o /tmp/photo.jpg   # 指定路径
 
   # 递归下载目录
-  minio get my-bucket/photos/ ./local-photos/ -r           # 逐个下载
-  minio get my-bucket/docs/ ./docs/ -r -c 5                # 5个并发下载`,
+  osc get my-bucket/photos/ ./local-photos/ -r           # 逐个下载
+  osc get my-bucket/docs/ ./docs/ -r -c 5                # 5个并发下载`,
 		Args: cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			bucket, objectName, err := parseBucketPath(args[0])
@@ -246,8 +246,8 @@ func NewCatCmd() *cobra.Command {
   bucket/object  存储桶名称和对象路径
 
 示例:
-  minio cat my-bucket/file.txt
-  minio cat my-bucket/logs/app.log`,
+  osc cat my-bucket/file.txt
+  osc cat my-bucket/logs/app.log`,
 		Args: cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			bucket, objectName, err := parseBucketPath(args[0])
@@ -285,11 +285,11 @@ func NewPutCmd() *cobra.Command {
   -c, --concurrent 并发上传数量（仅与 -r 一起使用，默认 0 表示逐个上传）
 
 示例:
-  minio put my-bucket/file.txt ./local.txt
-  minio put my-bucket/photos/image.jpg ./photo.jpg
-  minio put my-bucket/data.json ./data.json -t application/json
-  minio put my-bucket/photos/ ./local-photos/ -r           # 递归上传目录
-  minio put my-bucket/docs/ ./docs/ -r -c 5                # 5个并发上传`,
+  osc put my-bucket/file.txt ./local.txt
+  osc put my-bucket/photos/image.jpg ./photo.jpg
+  osc put my-bucket/data.json ./data.json -t application/json
+  osc put my-bucket/photos/ ./local-photos/ -r           # 递归上传目录
+  osc put my-bucket/docs/ ./docs/ -r -c 5                # 5个并发上传`,
 		Args: cobra.ExactArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {
 			bucket, objectName, err := parseBucketPath(args[0])
@@ -332,9 +332,9 @@ func NewSignCmd() *cobra.Command {
   -e, --expire  链接有效期（默认: 168h 即 7 天）
 
 示例:
-  minio sign my-bucket/file.txt
-  minio sign my-bucket/photos/image.jpg -e 24h
-  minio sign my-bucket/data.zip -e 1h`,
+  osc sign my-bucket/file.txt
+  osc sign my-bucket/photos/image.jpg -e 24h
+  osc sign my-bucket/data.zip -e 1h`,
 		Args: cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			bucket, objectName, err := parseBucketPath(args[0])
@@ -374,10 +374,10 @@ func NewCopyCmd() *cobra.Command {
   -b, --big           大文件分片复制（用于超过 5GB 的文件）
 
 示例:
-  minio copy my-bucket/file.txt my-bucket/copy.txt              # 复制单个对象
-  minio copy bucket1/photos/ bucket2/backup/photos/ -r          # 递归复制目录（逐个）
-  minio copy bucket1/photos/ bucket2/backup/photos/ -r -c 5     # 递归复制目录（5个并发）
-  minio copy bucket1/large.dat bucket2/large-copy.dat -b        # 大文件分片复制`,
+  osc copy my-bucket/file.txt my-bucket/copy.txt              # 复制单个对象
+  osc copy bucket1/photos/ bucket2/backup/photos/ -r          # 递归复制目录（逐个）
+  osc copy bucket1/photos/ bucket2/backup/photos/ -r -c 5     # 递归复制目录（5个并发）
+  osc copy bucket1/large.dat bucket2/large-copy.dat -b        # 大文件分片复制`,
 		Args: cobra.ExactArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {
 			srcBucket, srcObject, err := parseBucketPath(args[0])
@@ -434,12 +434,12 @@ func NewDelCmd() *cobra.Command {
   --force            强制删除，不进行确认提示
 
 示例:
-  minio del my-bucket/file.txt                  # 删除单个对象（需确认）
-  minio del my-bucket/file.txt --force          # 删除单个对象（无需确认）
-  minio del my-bucket/photos/ -r                # 递归删除目录（逐个，需确认）
-  minio del my-bucket/photos/ -r -c 5           # 递归删除目录（5个并发，需确认）
-  minio del my-bucket/photos/ -r --force        # 递归删除目录（逐个，无需确认）
-  minio del my-bucket/photos/ -r -c 5 --force   # 递归删除目录（5个并发，无需确认）
+  osc del my-bucket/file.txt                  # 删除单个对象（需确认）
+  osc del my-bucket/file.txt --force          # 删除单个对象（无需确认）
+  osc del my-bucket/photos/ -r                # 递归删除目录（逐个，需确认）
+  osc del my-bucket/photos/ -r -c 5           # 递归删除目录（5个并发，需确认）
+  osc del my-bucket/photos/ -r --force        # 递归删除目录（逐个，无需确认）
+  osc del my-bucket/photos/ -r -c 5 --force   # 递归删除目录（5个并发，无需确认）
 
 确认提示:
   执行删除前会提示 "确定要删除 xxx 吗？(y/N)"
