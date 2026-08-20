@@ -14,9 +14,16 @@ import (
 	"github.com/minio/minio-go/v7"
 )
 
+// PersistCurrentContext 可选：用于 set-default 落盘的全局回调
+var PersistCurrentContext func(name string) error
+
 // Run 启动 TUI
-func Run(client *minio.Client) error {
+// contextName 为启动时使用的 context 名称
+// onContextChange 为 TUI 内切换 context 时调用的回调（参数：新 context 名称；返回：错误）
+func Run(client *minio.Client, contextName string, onContextChange func(name string) (newClient *minio.Client, newCore *minio.Core, err error)) error {
 	m := NewModel(client)
+	m.contextName = contextName
+	m.onContextChange = onContextChange
 	p := tea.NewProgram(m)
 	_, err := p.Run()
 	return err
@@ -42,6 +49,14 @@ type operationCompleteMsg struct {
 	operation string
 	object    string
 	err       error
+}
+
+type contextSwitchedMsg struct {
+	name        string
+	newClient   *minio.Client
+	newCore     *minio.Core
+	persist     bool
+	err         error
 }
 
 // Init 实现 tea.Model
@@ -111,6 +126,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.AddHistory(msg.operation, msg.object, result)
 		return m, nil
+
+	case contextSwitchedMsg:
+		if msg.err != nil {
+			m.AddHistory("use", msg.name, "error: "+msg.err.Error())
+			return m, nil
+		}
+		m.applyClient(msg.newClient, msg.newCore, msg.name)
+		m.AddHistory("use", msg.name, "switched (persist="+boolStr(msg.persist)+")")
+		// 回到根目录并刷新桶列表
+		m.currentPath = "/"
+		m.currentBucket = ""
+		m.currentPrefix = ""
+		return m, loadRootCmd(m.lister)
 	}
 
 	// 更新子组件
@@ -256,6 +284,13 @@ func (m *Model) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.refresh()
 	case "h":
 		m.viewState = ViewStateHistory
+		return m, nil
+	case "u":
+		// 提示用户输入 context 名（通过命令模式）
+		m.inputFocused = true
+		m.input.Prompt = ": "
+		m.input.Focus()
+		m.input.SetValue("use ")
 		return m, nil
 	case "tab":
 		if m.focusState == FocusList {
@@ -449,6 +484,18 @@ func (m *Model) executeCommand(cmd string) (tea.Model, tea.Cmd) {
 
 	case "exit", "quit":
 		return m, tea.Quit
+
+	case "use":
+		if len(parts) < 2 {
+			return m, nil
+		}
+		return m, m.switchContextCmd(parts[1], false)
+
+	case "set-default":
+		if len(parts) < 2 {
+			return m, nil
+		}
+		return m, m.switchContextCmd(parts[1], true)
 	}
 
 	return m, nil
@@ -598,6 +645,37 @@ func (m *Model) downloadObject(objectName string) tea.Cmd {
 	}
 }
 
+func (m *Model) switchContextCmd(name string, persist bool) tea.Cmd {
+	return func() tea.Msg {
+		if m.onContextChange == nil {
+			return contextSwitchedMsg{name: name, err: fmt.Errorf("context 切换回调未注册")}
+		}
+		if persist {
+			// 落盘：调用外部注册的全局 hook（如 main 包）以修改 current-context
+			if PersistCurrentContext != nil {
+				if err := PersistCurrentContext(name); err != nil {
+					return contextSwitchedMsg{name: name, persist: persist, err: err}
+				}
+			}
+		}
+		newClient, newCore, err := m.onContextChange(name)
+		return contextSwitchedMsg{
+			name:      name,
+			newClient: newClient,
+			newCore:   newCore,
+			persist:   persist,
+			err:       err,
+		}
+	}
+}
+
+func boolStr(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
+
 func (m *Model) uploadObject(localPath, objectName string) tea.Cmd {
 	return func() tea.Msg {
 		if objectName == "" {
@@ -621,9 +699,17 @@ func (m Model) renderSeparator() string {
 }
 
 func (m Model) renderTitle() string {
-	title := "S3M Explorer"
-	if m.currentPath != "/" && m.currentPath != "" {
+	var title string
+	if m.contextName != "" {
+		if m.currentPath != "/" && m.currentPath != "" {
+			title = fmt.Sprintf("S3M Explorer [ctx: %s] - %s", m.contextName, m.currentPath)
+		} else {
+			title = fmt.Sprintf("S3M Explorer [ctx: %s]", m.contextName)
+		}
+	} else if m.currentPath != "/" && m.currentPath != "" {
 		title = fmt.Sprintf("S3M Explorer - %s", m.currentPath)
+	} else {
+		title = "S3M Explorer"
 	}
 	return titleStyle.Render(title)
 }
@@ -703,7 +789,7 @@ func (m Model) renderCommandInput() string {
 }
 
 func (m Model) renderStatusBar() string {
-	left := "[↑↓]导航 [Enter]选择 [Backspace]返回 [/]过滤 [:]命令 [r]刷新 [h]历史 [q]退出"
+	left := "[↑↓]导航 [Enter]选择 [Backspace]返回 [/]过滤 [:]命令 [u]切换ctx [r]刷新 [h]历史 [q]退出"
 	right := fmt.Sprintf("历史: %d 条", len(m.history))
 	return statusBarStyle.Render(
 		lipgloss.JoinHorizontal(lipgloss.Left, left, " | ", right),

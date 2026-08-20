@@ -6,8 +6,9 @@ S3M（S3 Mini Client）是 S3 对象存储协议的命令行客户端，支持�
 
 - **命令行模式**: 单次执行操作，适合脚本和自动化
 - **TUI 交互模式**: 基于 Bubble Tea 的终端用户界面，支持分屏布局、进度显示、历史记录
-- **加密存储**: 敏感信息（accesskey、secretkey）加密存储，更安全
-- **多配置支持**: 支持多个配置文件路径优先级查找
+- **多 context 管理**: 支持多个 S3 服务端 context（仿 kubectl config），可在运行时切换
+- **加密存储**: 敏感信息（accesskey/secretkey 合并）加密存储，更安全
+- **机器绑定**: 加密密钥基于本机 MAC/主机名/用户名派生，配置文件无法在其他机器解密
 
 ## 安装
 
@@ -15,51 +16,69 @@ S3M（S3 Mini Client）是 S3 对象存储协议的命令行客户端，支持�
 go build -o s3m
 ```
 
-## 配置
+## Context 管理
 
-### 推荐方式：使用 config 命令（加密存储）
+S3M 使用 context 管理多个 S3 服务端（仿 kubectl config context）。每个 context 保存一个服务端的 `endpoint / usessl / accesskey / secretkey`，其中 accesskey/secretkey 整体加密存储。
 
-```bash
-s3m config set
-```
-
-交互式输入：
-- Endpoint: S3 服务端点
-- UseSSL: 是否启用 HTTPS（可选，默认 true）
-- AccessKey: 访问密钥（加密存储）
-- SecretKey: 密钥（加密存储）
-
-配置文件保存到 `~/.config/s3m/s3m.conf`，格式如下：
-
-```ini
-endpoint=s3-internal.cn-north-1-bjps.jdcloud-oss.com
-usessl=true
-accesskey=enc:aes:加密后的密文
-secretkey=enc:aes:加密后的密文
-```
-
-`usessl` 为可选项：
-- 不配置时默认使用 `true`（HTTPS）
-- 配置后按配置值使用（`true` 或 `false`）
-
-### 配置管理命令
+### 快速开始
 
 ```bash
-s3m config set    # 设置配置（加密存储）
-s3m config show   # 查看配置（解密显示）
+# 创建第一个 context（交互式）
+s3m context set prod
+# 按提示输入 Endpoint / AccessKey / SecretKey / UseSSL
+
+# 创建第二个 context
+s3m context set dev
+
+# 查看所有 context
+s3m context list
+#   dev                   10.0.0.1:9000
+# * prod                 (current)  s3.example.com
+
+# 设置默认 context
+s3m context current prod
+
+# 临时使用某个 context（仅本次进程）
+s3m --context dev list my-bucket/photos/
+
+# 启动 TUI 时使用某个 context
+s3m --context prod
 ```
 
+### Context 子命令
 
-### 传统方式：手动创建配置文件（明文）
+| 命令 | 说明 |
+|------|------|
+| `s3m context` / `s3m context list` | 列出所有 context |
+| `s3m context current` | 显示当前默认 context |
+| `s3m context current <name>` | 设置默认 context（落盘） |
+| `s3m context use <name>` | 设置默认 context（CLI 模式下等同于 `current`） |
+| `s3m context set-default <name>` | 设置默认 context（落盘） |
+| `s3m context show [name]` | 解密显示 context 详情 |
+| `s3m context set <name>` | 交互式创建/更新 context |
+| `s3m context rename <old> <new>` | 重命名 context |
+| `s3m context delete <name> [-f]` | 删除 context（删除当前时自动清空 current-context） |
+
+### 配置文件
+
+配置文件保存到 `~/.config/s3m/s3m.conf`，格式示例：
 
 ```ini
-endpoint=s3-internal.cn-north-1-bjps.jdcloud-oss.com
-usessl=true
-accesskey=your-access-key
-secretkey=your-secret-key
+# S3M contexts
+current-context=prod
+
+[prod]
+ctx.prod.endpoint=s3.example.com
+ctx.prod.usessl=true
+ctx.prod.auth=enc:aes:<密文>
+
+[dev]
+ctx.dev.endpoint=10.0.0.1:9000
+ctx.dev.usessl=false
+ctx.dev.auth=enc:aes:<密文>
 ```
 
-**注意**: 明文配置不推荐，建议使用 `s3m config set` 加密存储。
+`ctx.<name>.auth` 的明文格式为 `<accessKey>\x1f<secretKey>`（`\x1f` 是 ASCII Unit Separator），整体 AES-256-GCM 加密后用 base64 编码，前缀 `enc:aes:`。
 
 ### 配置文件查找优先级
 
@@ -67,6 +86,27 @@ secretkey=your-secret-key
 2. 当前目录 `./s3m.conf`
 3. 用户目录 `~/.config/s3m/s3m.conf`
 4. 系统目录 `/etc/s3m/s3m.conf`
+
+### 旧格式兼容
+
+如果 `s3m.conf` 中只包含 `endpoint=.../usessl=.../accesskey=.../secretkey=...` 的旧格式（无 `ctx.*` 段），S3M 在加载时自动迁移为新格式：
+- 把 AK/SK 合并加密写入 `ctx.default.auth`
+- 设置 `current-context=default`
+- 原文件备份为 `s3m.conf.bak`
+
+### Context 解析优先级
+
+- `--context <name>` 参数 > `current-context` 字段
+- 都没有时报错并提示创建
+
+### TUI 中的 context 切换
+
+- 启动时通过 `--context <name>` 指定，或使用 `current-context`
+- TUI 标题栏显示当前 context：`S3M Explorer [ctx: prod] - my-bucket/photos/`
+- 命令模式新增：
+  - `use <name>`：临时切换（不落盘，退出后下次启动仍是原默认）
+  - `set-default <name>`：切换并落盘（修改 current-context）
+- 快捷键 `u` 进入 `use` 模式
 
 ## 使用方式
 
@@ -105,6 +145,7 @@ secretkey=your-secret-key
 | `:` | 进入命令模式 |
 | `r` | 刷新列表 |
 | `h` | 查看历史 |
+| `u` | 切换 context |
 | `Tab` | 切换左右面板 |
 | `q` | 退出 |
 
@@ -118,6 +159,8 @@ secretkey=your-secret-key
 | `get <object>` | 下载对象 | `get file.txt` |
 | `put <file>` | 上传文件 | `put ./local.txt` |
 | `sign <object>` | 生成签名链接 | `sign file.txt` |
+| `use <name>` | 临时切换 context | `use dev` |
+| `set-default <name>` | 切换并落盘默认 context | `set-default prod` |
 | `history` | 查看操作历史 | `history` |
 | `exit` | 退出 | `exit` |
 
@@ -210,40 +253,49 @@ s3m del bucket/photos/ -r -c 5 --force   # 5个并发删除（无需确认）
 - 输入其他任何内容取消操作
 - 使用 `--force` 选项跳过确认直接删除
 
-### 配置管理
+### Context 管理
 
 ```bash
-s3m config set                      # 设置配置（加密存储）
-s3m config show                     # 查看配置（解密显示）
+s3m context                              # 列出所有 context
+s3m context list                         # 同上
+s3m context current                      # 显示当前 context
+s3m context current <name>               # 设置默认 context
+s3m context set <name>                   # 交互式创建/更新 context
+s3m context show [name]                  # 解密显示 context 详情
+s3m context rename <old> <new>           # 重命名 context
+s3m context delete <name> [-f]           # 删除 context
 ```
+
+运行时使用 `--context` 临时指定，TUI 中通过 `use`/`set-default` 切换。详见上节 "Context 管理"。
 
 ## 项目结构
 
 ```
 s3m/
-├── main.go           # 程序入口
-├── config.go         # 配置文件解析（支持解密）
-├── client.go         # S3M 客户端创建
+├── main.go                # 程序入口
+├── config.go              # 配置文件解析、ContextStore、旧格式迁移
+├── context_ops.go         # main 包注入给 commands 的 context 操作实现
+├── client.go              # S3M 客户端创建
 ├── crypto/
-│   └── crypto.go     # 加解密（PBKDF2 + AES-256-GCM）
+│   └── crypto.go          # 加解密（EncryptCredentials/DecryptCredentials）
 ├── commands/
-│   ├── root.go       # Cobra 命令定义
-│   └── config.go     # config 子命令
+│   ├── root.go            # Cobra 命令定义
+│   └── context.go         # context 子命令
 ├── operations/
-│   ├── types.go      # 数据结构定义
-│   ├── list.go       # 列出对象
-│   ├── stat.go       # 查询元数据
-│   ├── get.go        # 下载对象
-│   ├── cat.go        # 输出内容
-│   ├── put.go        # 上传文件
-│   ├── copy.go       # 复制对象（含分片复制）
-│   ├── del.go        # 删除对象
-│   └── presign.go    # 生成签名 URL
+│   ├── types.go           # 数据结构定义
+│   ├── list.go            # 列出对象
+│   ├── stat.go            # 查询元数据
+│   ├── get.go             # 下载对象
+│   ├── cat.go             # 输出内容
+│   ├── put.go             # 上传文件
+│   ├── copy.go            # 复制对象（含分片复制）
+│   ├── del.go             # 删除对象
+│   └── presign.go         # 生成签名 URL
 ├── tui/
-│   ├── model.go      # TUI 状态模型
-│   ├── app.go        # Bubble Tea 主程序
-│   └── styles.go     # 样式定义
-└── README.md         # 说明文档
+│   ├── model.go           # TUI 状态模型
+│   ├── app.go             # Bubble Tea 主程序
+│   └── styles.go          # 样式定义
+└── README.md              # 说明文档
 ```
 
 ## 依赖

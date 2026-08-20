@@ -10,11 +10,15 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 )
 
 const (
-	KeyLength   = 32 // AES-256
-	NonceLength = 12 // GCM nonce
+	KeyLength         = 32 // AES-256
+	NonceLength       = 12 // GCM nonce
+	CredentialsSep    = "\x1f"
+	EncryptedPrefix   = "enc:aes:"
+	EncryptedPrefixLen = 8
 )
 
 // getMachineKey 获取机器特征密钥
@@ -118,5 +122,31 @@ func Decrypt(ciphertextBase64 string) (string, error) {
 
 // IsEncrypted 检查值是否已加密
 func IsEncrypted(value string) bool {
-	return len(value) > 8 && value[:8] == "enc:aes:"
+	return len(value) >= EncryptedPrefixLen && value[:EncryptedPrefixLen] == EncryptedPrefix
+}
+
+// EncryptCredentials 将 accessKey 与 secretKey 合并后整体加密。
+// 明文格式：accessKey + CredentialsSep + secretKey
+func EncryptCredentials(accessKey, secretKey string) (string, error) {
+	if accessKey == "" || secretKey == "" {
+		return "", errors.New("accessKey 和 secretKey 不能为空")
+	}
+	return Encrypt(accessKey + CredentialsSep + secretKey)
+}
+
+// DecryptCredentials 解密一个由 EncryptCredentials 加密的字符串，
+// 拆分后返回 accessKey 与 secretKey。
+func DecryptCredentials(ciphertextBase64 string) (string, string, error) {
+	if !IsEncrypted(ciphertextBase64) {
+		return "", "", errors.New("凭据未加密，格式无效")
+	}
+	plain, err := Decrypt(ciphertextBase64[EncryptedPrefixLen:])
+	if err != nil {
+		return "", "", err
+	}
+	parts := strings.SplitN(plain, CredentialsSep, 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", errors.New("解密后的凭据格式无效")
+	}
+	return parts[0], parts[1], nil
 }

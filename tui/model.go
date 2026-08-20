@@ -48,11 +48,16 @@ type HistoryEntry struct {
 // Model TUI 主模型
 type Model struct {
 	client *minio.Client
+	core   *minio.Core
 	lister *operations.Lister
 	stater *operations.Stater
 	getter *operations.Getter
 	putter *operations.Putter
 	signer *operations.Signer
+
+	// context
+	contextName     string
+	onContextChange func(name string) (newClient *minio.Client, newCore *minio.Core, err error)
 
 	// 状态
 	viewState     ViewState
@@ -137,4 +142,16 @@ func (m *Model) AddHistory(op, object, result string) {
 	if len(m.history) > m.maxHistory {
 		m.history = m.history[:m.maxHistory]
 	}
+}
+
+// applyClient 切换到新的 client/core/contextName，并重建子操作器
+func (m *Model) applyClient(newClient *minio.Client, newCore *minio.Core, name string) {
+	m.client = newClient
+	m.core = newCore
+	m.contextName = name
+	m.lister = operations.NewLister(newClient)
+	m.stater = operations.NewStater(newClient)
+	m.getter = operations.NewGetter(newClient)
+	m.putter = operations.NewPutter(newClient)
+	m.signer = operations.NewSigner(newClient)
 }

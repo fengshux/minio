@@ -36,10 +36,12 @@ func requirePath(path, cmdName string) error {
 }
 
 var (
-	configPath string
-	debug      bool
-	client     *minio.Client
-	core       *minio.Core
+	configPath  string
+	contextName string
+	debug       bool
+	client      *minio.Client
+	core        *minio.Core
+	usedContext string
 )
 
 // ClientWrapper 包装 minio.Client 以便在 main 包中初始化
@@ -49,7 +51,8 @@ type ClientWrapper struct {
 }
 
 // InitClient 由 main 包设置的初始化客户端回调函数
-var InitClient func(configPath string, debug bool) (*ClientWrapper, error)
+// 返回 ClientWrapper、实际使用的 context 名称、错误
+var InitClient func(configPath, contextName string, debug bool) (*ClientWrapper, string, error)
 
 // NewRootCmd 创建根命令
 func NewRootCmd() *cobra.Command {
@@ -58,29 +61,36 @@ func NewRootCmd() *cobra.Command {
 		Short: "S3 Mini Client：S3 对象存储协议命令行客户端",
 		Long: `S3M（S3 Mini Client）是 S3 对象存储协议的命令行客户端，支持列出、查询、下载对象等操作
 
-配置文件:
-  默认查找路径（按优先级）:
-    1. 当前目录 ./s3m.conf
-    2. ~/.config/s3m/s3m.conf
-    3. /etc/s3m/s3m.conf
-
-  配置文件格式:
-    endpoint=<s3-endpoint>
-		usessl=<true|false>   # 可选，默认 true
-    accesskey=<access-key>
-    secretkey=<secret-key>`,
+Context 管理:
+  使用 's3m context' 子命令管理多个服务端（仿 kubectl config context）。
+  启动时可通过 --context 指定 context，否则使用 current-context。
+  每个 context 的 accesskey/secretkey 加密存储在配置文件中。`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			wrapper, err := InitClient(configPath, debug)
+			// context 子命令不创建 client，但需要 --config/--context 参数生效
+			if cmd.Name() == "context" || (cmd.Parent() != nil && cmd.Parent().Name() == "context") {
+				return nil
+			}
+			wrapper, used, err := InitClient(configPath, contextName, debug)
 			if err != nil {
 				return err
 			}
 			client = wrapper.Client
 			core = wrapper.Core
+			usedContext = used
 			return nil
 		},
 		Run: func(cmd *cobra.Command, args []string) {
 			// 无子命令时进入 TUI 交互模式
-			if err := tui.Run(client); err != nil {
+			onContextChange := func(name string) (*minio.Client, *minio.Core, error) {
+				wrapper, used, err := InitClient(configPath, name, debug)
+				if err != nil {
+					return nil, nil, err
+				}
+				usedContext = used
+				return wrapper.Client, wrapper.Core, nil
+			}
+			tui.PersistCurrentContext = CtxOps.SetCurrentFn
+			if err := tui.Run(client, usedContext, onContextChange); err != nil {
 				fmt.Println(err)
 				os.Exit(1)
 			}
@@ -88,11 +98,12 @@ func NewRootCmd() *cobra.Command {
 	}
 
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "配置文件路径（默认: ./s3m.conf, ~/.config/s3m/s3m.conf, /etc/s3m/s3m.conf）")
+	rootCmd.PersistentFlags().StringVar(&contextName, "context", "", "指定 context 名称（默认: current-context）")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "启用 HTTP 请求调试输出")
 
 	// 添加子命令
 	rootCmd.AddCommand(
-		NewConfigCmd(),
+		NewContextCmd(),
 		NewPutCmd(),
 		NewListCmd(),
 		NewStatCmd(),

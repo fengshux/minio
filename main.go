@@ -17,26 +17,41 @@ func main() {
 
 // init 初始化包，设置命令包的回调函数
 func init() {
-	commands.InitClient = func(configPath string, debug bool) (*commands.ClientWrapper, error) {
-		cfg, err := LoadConfig(configPath)
-		if err != nil {
-			return nil, err
-		}
+	ops := &contextOps{}
+	commands.CtxOps = commands.ContextOps{
+		ConfigPathFn: ops.ConfigPath,
+		ListFn:       ops.List,
+		CurrentFn:    ops.CurrentName,
+		SetCurrentFn: ops.SetCurrent,
+		ShowFn:       ops.Show,
+		UpsertFn:     ops.Upsert,
+		RenameFn:     ops.Rename,
+		DeleteFn:     ops.Delete,
+	}
 
-		if err := cfg.Validate(); err != nil {
-			return nil, err
+	commands.SetExternalConfigPath = func(path string) {
+		ops.configPath = path
+	}
+
+	commands.InitClient = func(configPath, contextName string, debug bool) (*commands.ClientWrapper, string, error) {
+		if configPath != "" {
+			ops.configPath = configPath
+		}
+		cfg, used, err := LoadContextStore(configPath, contextName)
+		if err != nil {
+			return nil, "", err
 		}
 
 		client, err := NewClient(cfg, debug)
 		if err != nil {
-			return nil, fmt.Errorf("初始化客户端失败: %w", err)
+			return nil, "", fmt.Errorf("初始化客户端失败: %w", err)
 		}
 
 		core, err := NewCoreClient(cfg, debug)
 		if err != nil {
-			return nil, fmt.Errorf("初始化 Core 客户端失败: %w", err)
+			return nil, "", fmt.Errorf("初始化 Core 客户端失败: %w", err)
 		}
 
-		return &commands.ClientWrapper{Client: client, Core: core}, nil
+		return &commands.ClientWrapper{Client: client, Core: core}, used, nil
 	}
 }
