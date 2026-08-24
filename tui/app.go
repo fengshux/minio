@@ -20,10 +20,12 @@ var PersistCurrentContext func(name string) error
 // Run 启动 TUI
 // contextName 为启动时使用的 context 名称
 // onContextChange 为 TUI 内切换 context 时调用的回调（参数：新 context 名称；返回：错误）
-func Run(client *minio.Client, contextName string, onContextChange func(name string) (newClient *minio.Client, newCore *minio.Core, err error)) error {
+// readOnly 为 true 时表示 conf 不可写，标题加 (readonly) 后缀、set-default 命令被拒绝
+func Run(client *minio.Client, contextName string, onContextChange func(name string) (newClient *minio.Client, newCore *minio.Core, err error), readOnly bool) error {
 	m := NewModel(client)
 	m.contextName = contextName
 	m.onContextChange = onContextChange
+	m.readOnly = readOnly
 	p := tea.NewProgram(m)
 	_, err := p.Run()
 	return err
@@ -650,6 +652,9 @@ func (m *Model) switchContextCmd(name string, persist bool) tea.Cmd {
 		if m.onContextChange == nil {
 			return contextSwitchedMsg{name: name, err: fmt.Errorf("context 切换回调未注册")}
 		}
+		if persist && m.readOnly {
+			return contextSwitchedMsg{name: name, persist: persist, err: fmt.Errorf("conf 为只读模式（明文 conf），不允许 set-default")}
+		}
 		if persist {
 			// 落盘：调用外部注册的全局 hook（如 main 包）以修改 current-context
 			if PersistCurrentContext != nil {
@@ -700,16 +705,17 @@ func (m Model) renderSeparator() string {
 
 func (m Model) renderTitle() string {
 	var title string
-	if m.contextName != "" {
-		if m.currentPath != "/" && m.currentPath != "" {
-			title = fmt.Sprintf("S3M Explorer [ctx: %s] - %s", m.contextName, m.currentPath)
-		} else {
-			title = fmt.Sprintf("S3M Explorer [ctx: %s]", m.contextName)
-		}
-	} else if m.currentPath != "/" && m.currentPath != "" {
-		title = fmt.Sprintf("S3M Explorer - %s", m.currentPath)
+	ctxLabel := m.contextName
+	if ctxLabel == "" {
+		ctxLabel = "?"
+	}
+	if m.readOnly {
+		ctxLabel = ctxLabel + " (readonly)"
+	}
+	if m.currentPath != "/" && m.currentPath != "" {
+		title = fmt.Sprintf("S3M Explorer [ctx: %s] - %s", ctxLabel, m.currentPath)
 	} else {
-		title = "S3M Explorer"
+		title = fmt.Sprintf("S3M Explorer [ctx: %s]", ctxLabel)
 	}
 	return titleStyle.Render(title)
 }

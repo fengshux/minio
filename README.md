@@ -58,6 +58,7 @@ s3m --context prod
 | `s3m context set <name>` | 交互式创建/更新 context |
 | `s3m context rename <old> <new>` | 重命名 context |
 | `s3m context delete <name> [-f]` | 删除 context（删除当前时自动清空 current-context） |
+| `s3m context import <file>` | 从明文 conf 文件导入 context 到默认配置 |
 
 ### 配置文件
 
@@ -86,6 +87,71 @@ ctx.dev.auth=enc:aes:<密文>
 2. 当前目录 `./s3m.conf`
 3. 用户目录 `~/.config/s3m/s3m.conf`
 4. 系统目录 `/etc/s3m/s3m.conf`
+
+### `--config` 明文 conf（只读模式）
+
+通过 `--config=path/to/s3m.conf` 指定外部配置文件时：
+
+- **允许明文 AK/SK**：不必提前加密，方便临时访问某个 endpoint
+- **不触发迁移**：原文件保持不动
+- **写操作禁止**：`context set/upsert/rename/delete/set-default` 全部报错并提示
+- **TUI 仍可读**：标题栏显示 `[ctx: name (readonly)]`，`use <name>` 临时切换可用，`set-default` 被拒
+
+支持的明文 conf 格式：
+
+**新格式（多 context，扁平 key=value）**：
+
+```ini
+current-context=dev
+
+[dev]
+ctx.dev.endpoint=10.0.0.1:9000
+ctx.dev.usessl=false
+# auth 明文格式：<ak>\x1f<sk>（\x1f 是 ASCII Unit Separator）
+ctx.dev.auth=AKDEV\x1fSKDEV
+```
+
+**旧格式（单 context，触发自动迁移被禁用）**：
+
+```ini
+endpoint=10.0.0.1:9000
+usessl=false
+accesskey=AKDEV
+secretkey=SKDEV
+```
+
+密文格式（`enc:aes:...`）也仍然兼容，可与明文混存于同一 conf。
+
+使用示例：
+
+```bash
+# 临时访问一个 endpoint
+s3m --config=/tmp/my-plain.conf list my-bucket/photos/
+
+# 明文 conf 写操作会被拒绝
+s3m --config=/tmp/my-plain.conf context set foo
+# 错误: 配置文件 /tmp/my-plain.conf 是只读模式（明文 conf），不允许写入
+# 提示: 取消 --config 参数使用默认路径 ~/.config/s3m/s3m.conf 来管理加密 context
+```
+
+### 从明文 conf 导入 context
+
+可以把明文 conf 中的 context 合并到默认配置中：
+
+```bash
+# 从明文 conf 导入：同名覆盖、默认独有保留、导入文件不变
+s3m context import /tmp/my-plain.conf
+# 已从 /tmp/my-plain.conf 导入 2 个 context: dev, staging
+```
+
+合并规则：
+- 导入文件中的 context 与默认配置同名 → 覆盖默认配置
+- 默认配置独有的 context → 保留
+- 导入文件的 `current-context` 不会同步到默认配置（避免误改当前默认）
+- 导入文件本身**不会**被修改
+- 导入文件不存在时返回错误并退出码 1
+
+适用场景：把团队共享的明文 conf、CI 临时 conf、minio server 导出的 conf 等批量导入到本地默认配置。
 
 ### 旧格式兼容
 

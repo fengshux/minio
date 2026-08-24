@@ -19,23 +19,27 @@ func main() {
 func init() {
 	ops := &contextOps{}
 	commands.CtxOps = commands.ContextOps{
-		ConfigPathFn: ops.ConfigPath,
-		ListFn:       ops.List,
-		CurrentFn:    ops.CurrentName,
-		SetCurrentFn: ops.SetCurrent,
-		ShowFn:       ops.Show,
-		UpsertFn:     ops.Upsert,
-		RenameFn:     ops.Rename,
-		DeleteFn:     ops.Delete,
+		ConfigPathFn:     ops.ConfigPath,
+		ReadOnlyFn:       ops.ReadOnly,
+		ListFn:           ops.List,
+		CurrentFn:        ops.CurrentName,
+		SetCurrentFn:     ops.SetCurrent,
+		ShowFn:           ops.Show,
+		UpsertFn:         ops.Upsert,
+		RenameFn:         ops.Rename,
+		DeleteFn:         ops.Delete,
+		ImportFromFileFn: ops.ImportFromFile,
 	}
 
 	commands.SetExternalConfigPath = func(path string) {
 		ops.configPath = path
+		ops.readOnly = path != ""
 	}
 
 	commands.InitClient = func(configPath, contextName string, debug bool) (*commands.ClientWrapper, string, error) {
 		if configPath != "" {
 			ops.configPath = configPath
+			ops.readOnly = true
 		}
 		cfg, used, err := LoadContextStore(configPath, contextName)
 		if err != nil {

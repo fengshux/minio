@@ -90,7 +90,8 @@ Context 管理:
 				return wrapper.Client, wrapper.Core, nil
 			}
 			tui.PersistCurrentContext = CtxOps.SetCurrentFn
-			if err := tui.Run(client, usedContext, onContextChange); err != nil {
+			readOnly := CtxOps.ReadOnlyFn != nil && CtxOps.ReadOnlyFn()
+			if err := tui.Run(client, usedContext, onContextChange, readOnly); err != nil {
 				fmt.Println(err)
 				os.Exit(1)
 			}

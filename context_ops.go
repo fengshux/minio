@@ -9,6 +9,7 @@ import (
 
 type contextOps struct {
 	configPath string
+	readOnly   bool
 }
 
 func (o *contextOps) ConfigPath() string {
@@ -18,8 +19,20 @@ func (o *contextOps) ConfigPath() string {
 	return o.configPath
 }
 
+func (o *contextOps) ReadOnly() bool {
+	return o.readOnly
+}
+
 func (o *contextOps) loadStore() (*ContextStore, error) {
-	return parseContextStore(o.ConfigPath())
+	return parseContextStore(o.ConfigPath(), o.readOnly)
+}
+
+func (o *contextOps) checkWritable() error {
+	if o.readOnly {
+		return fmt.Errorf("配置文件 %s 是只读模式（明文 conf），不允许写入\n提示: 取消 --config 参数使用默认路径 %s 来管理加密 context",
+			o.ConfigPath(), GetConfigPath())
+	}
+	return nil
 }
 
 func (o *contextOps) List() ([]commands.ContextInfo, error) {
@@ -51,6 +64,9 @@ func (o *contextOps) CurrentName() (string, error) {
 }
 
 func (o *contextOps) SetCurrent(name string) error {
+	if err := o.checkWritable(); err != nil {
+		return err
+	}
 	store, err := o.loadStore()
 	if err != nil {
 		return err
@@ -86,6 +102,9 @@ func (o *contextOps) Show(name string) (string, string, commands.ContextInfo, er
 }
 
 func (o *contextOps) Upsert(name, endpoint string, useSSL bool, accessKey, secretKey string) error {
+	if err := o.checkWritable(); err != nil {
+		return err
+	}
 	store, err := o.loadStore()
 	if err != nil {
 		store = &ContextStore{Contexts: map[string]Context{}}
@@ -103,6 +122,9 @@ func (o *contextOps) Upsert(name, endpoint string, useSSL bool, accessKey, secre
 }
 
 func (o *contextOps) Rename(oldName, newName string) error {
+	if err := o.checkWritable(); err != nil {
+		return err
+	}
 	if oldName == newName {
 		return nil
 	}
@@ -126,6 +148,9 @@ func (o *contextOps) Rename(oldName, newName string) error {
 }
 
 func (o *contextOps) Delete(name string) error {
+	if err := o.checkWritable(); err != nil {
+		return err
+	}
 	store, err := o.loadStore()
 	if err != nil {
 		return err
@@ -138,4 +163,40 @@ func (o *contextOps) Delete(name string) error {
 		store.Current = ""
 	}
 	return SaveContextStore(o.ConfigPath(), store)
+}
+
+// ImportFromFile 从 filePath 读取 context 并合并到默认 conf。
+// 合并策略：默认 conf 中同名 context 被覆盖；独有的 context 保留；
+// current-context 不变（导入文件的 current-context 不会同步到默认 conf）。
+// 返回被新增或覆盖的 context 名称列表（按导入文件中出现顺序）。
+func (o *contextOps) ImportFromFile(filePath string) ([]string, error) {
+	srcStore, err := ParseContextStore(filePath, true)
+	if err != nil {
+		return nil, fmt.Errorf("解析导入文件 %s 失败: %w", filePath, err)
+	}
+	if len(srcStore.Contexts) == 0 {
+		return nil, fmt.Errorf("导入文件 %s 中未找到任何 context", filePath)
+	}
+
+	// 加载默认 conf（直接 ParseContextStore，readOnly=false，正常解析 + 触发迁移）
+	defaultPath := GetConfigPath()
+	defaultStore, err := ParseContextStore(defaultPath, false)
+	if err != nil {
+		// 默认 conf 不存在：创建新 store
+		defaultStore = &ContextStore{Contexts: map[string]Context{}}
+	}
+
+	// 合并：srcStore 覆盖 defaultStore
+	touched := make([]string, 0, len(srcStore.Contexts))
+	for name, ctx := range srcStore.Contexts {
+		defaultStore.Contexts[name] = ctx
+		touched = append(touched, name)
+	}
+
+	// 写入默认 conf
+	if err := SaveContextStore(defaultPath, defaultStore); err != nil {
+		return nil, fmt.Errorf("写入默认配置失败: %w", err)
+	}
+
+	return touched, nil
 }

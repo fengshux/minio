@@ -21,14 +21,16 @@ type ContextInfo struct {
 
 // ContextOps 由 main 包注入的 context 操作回调
 type ContextOps struct {
-	ConfigPathFn func() string
-	ListFn       func() ([]ContextInfo, error)
-	CurrentFn    func() (string, error)
-	SetCurrentFn func(name string) error
-	ShowFn       func(name string) (accessKey, secretKey string, info ContextInfo, err error)
-	UpsertFn     func(name, endpoint string, useSSL bool, accessKey, secretKey string) error
-	RenameFn     func(oldName, newName string) error
-	DeleteFn     func(name string) error
+	ConfigPathFn   func() string
+	ReadOnlyFn     func() bool
+	ListFn         func() ([]ContextInfo, error)
+	CurrentFn      func() (string, error)
+	SetCurrentFn   func(name string) error
+	ShowFn         func(name string) (accessKey, secretKey string, info ContextInfo, err error)
+	UpsertFn       func(name, endpoint string, useSSL bool, accessKey, secretKey string) error
+	RenameFn       func(oldName, newName string) error
+	DeleteFn       func(name string) error
+	ImportFromFileFn func(filePath string) (imported []string, err error)
 }
 
 func (o ContextOps) configPath() string {
@@ -83,6 +85,7 @@ accesskey/secretkey 加密存储（机器绑定）。
 		newContextSetCmd(),
 		newContextRenameCmd(),
 		newContextDeleteCmd(),
+		newContextImportCmd(),
 	)
 
 	return cmd
@@ -104,8 +107,11 @@ func listContexts() {
 	if err != nil {
 		exitErr(err)
 	}
+	if CtxOps.ReadOnlyFn != nil && CtxOps.ReadOnlyFn() {
+		fmt.Printf("(只读模式：使用 --config=%s，明文 conf 不允许写入)\n\n", CtxOps.configPath())
+	}
 	if len(infos) == 0 {
-		fmt.Println("未找到任何 context，使用 's3m context set <name>' 创建")
+		fmt.Println("未找到任何 context")
 		return
 	}
 	sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
@@ -300,6 +306,33 @@ func newContextDeleteCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "强制删除，不进行确认")
 	return cmd
+}
+
+// ============= import =============
+
+func newContextImportCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "import <file>",
+		Short: "从明文 conf 文件导入 context 到默认配置",
+		Long: `从指定文件（明文 conf 格式）导入 context 到默认配置 ~/.config/s3m/s3m.conf。
+
+合并策略:
+  - 导入文件中的 context 与默认配置同名时，覆盖默认配置
+  - 默认配置独有的 context 保留
+  - 导入文件的 current-context 不会同步到默认配置
+  - 导入文件本身不会被修改
+
+支持的文件格式与 --config 指定的明文 conf 完全相同（多 context 扁平 key=value，
+或单 context 旧格式 endpoint/accesskey/secretkey，AK/SK 可为明文或 enc:aes: 密文）。`,
+		Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			imported, err := CtxOps.ImportFromFileFn(args[0])
+			if err != nil {
+				exitErr(err)
+			}
+			fmt.Printf("已从 %s 导入 %d 个 context: %s\n", args[0], len(imported), strings.Join(imported, ", "))
+		},
+	}
 }
 
 // ============= utils =============

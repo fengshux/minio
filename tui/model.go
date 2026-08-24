@@ -58,6 +58,7 @@ type Model struct {
 	// context
 	contextName     string
 	onContextChange func(name string) (newClient *minio.Client, newCore *minio.Core, err error)
+	readOnly        bool
 
 	// 状态
 	viewState     ViewState
