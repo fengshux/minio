@@ -287,6 +287,8 @@ s3m sign bucket/object -e 1h        # 指定 1 小时有效
 
 #### 复制对象
 
+同一 context 内复制（服务端复制，数据不经过本机）：
+
 ```bash
 s3m copy src-bucket/src-object dest-bucket/dest-object  # 复制单个对象
 s3m copy bucket1/file.txt bucket2/backup/file.txt       # 示例
@@ -299,6 +301,47 @@ s3m copy bucket1/photos/ bucket2/backup/photos/ -r -c 5 # 5个并发复制
 s3m copy bucket1/large.dat bucket2/large-copy.dat -b
 s3m copy bucket1/large.dat bucket2/large-copy.dat --big
 ```
+
+#### 跨 context 复制对象
+
+在路径前加 `context:` 前缀即可在不同服务端之间复制：
+
+```bash
+# 跨服务端复制单个对象
+s3m copy prod:bucket1/file.txt dev:bucket2/file.txt
+
+# 省略一侧前缀时，该侧使用当前 context
+s3m copy bucket1/file.txt dev:bucket2/file.txt          # 源用当前 context
+s3m copy prod:bucket1/file.txt bucket2/file.txt         # 目标用当前 context
+
+# 跨服务端递归复制目录
+s3m copy prod:bucket1/photos/ dev:bucket2/photos/ -r
+s3m copy prod:bucket1/photos/ dev:bucket2/photos/ -r -c 5
+```
+
+前缀解析规则：冒号只有出现在第一个 `/` **之前**才被视为 context 分隔符。
+因此 `bucket/a:b.txt` 中的冒号属于对象名，不会被误判为 context。
+
+```bash
+s3m copy bucket/a:b.txt bucket/c.txt          # 冒号在 / 之后，属于对象名
+s3m copy prod:bucket/a:b.txt dev:bucket/c.txt # 前一个冒号是 context，后一个属于对象名
+```
+
+工作原理与限制：
+
+S3 的服务端复制（`x-amz-copy-source`）只能在同一 endpoint 内进行，
+因此跨 context 复制必须经本机流式中转（源端 `GetObject` → 目标端 `PutObject`），
+数据不落盘、内存占用有界。由此带来以下差异：
+
+- 数据经过本机，速度受本机上下行带宽限制
+- 仅保留 `Content-Type`，**不复制**自定义元数据、存储类别、标签、ACL
+- 只校验对象大小，不校验 ETag（跨 S3 实现 ETag 算法不可比）
+- 忽略 `-b`，分片由流式上传自动处理（会打印提示）
+- 失败需整个对象重传，不支持续传
+
+是否走跨端路径按 **context 名**判定：两侧 context 名相同（含都省略）走服务端复制，
+否则走流式中转。即使两个 context 指向同一 endpoint 也会走流式中转，
+这样可避免用目标端凭据读取源端 bucket 导致的权限失败。
 
 #### 删除对象
 
@@ -354,7 +397,7 @@ s3m/
 │   ├── get.go             # 下载对象
 │   ├── cat.go             # 输出内容
 │   ├── put.go             # 上传文件
-│   ├── copy.go            # 复制对象（含分片复制）
+│   ├── copy.go            # 复制对象（服务端复制、分片复制、跨 context 流式复制）
 │   ├── del.go             # 删除对象
 │   └── presign.go         # 生成签名 URL
 ├── tui/

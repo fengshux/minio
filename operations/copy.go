@@ -60,17 +60,23 @@ func (c *Copier) Copy(ctx context.Context, srcBucket, srcObject, destBucket, des
 		result.SrcBucket, result.SrcKey, result.DstBucket, result.DstKey, result.ETag)
 }
 
-// CopyDirectory 递归复制整个目录，返回结构化数据
-// 使用流式方式列出对象，边列出边复制
-// concurrent 参数指定并发数，为 0 时逐个复制
-func (c *Copier) CopyDirectory(ctx context.Context, srcBucket, srcPrefix, destBucket, destPrefix string, concurrent int) (*BatchCopyResult, error) {
+// objectCopyFn 单个对象的复制实现，由 copyTree 调用。
+// 服务端复制与跨 context 流式复制各自提供不同实现。
+type objectCopyFn func(ctx context.Context, srcKey, dstKey string) (*CopyResult, error)
+
+// copyTree 流式列举源前缀下的对象并逐个执行 copyFn，
+// 负责目标路径计算、并发调度、进度条与错误汇总。
+// srcLister 必须基于源端 client 构建；concurrent 为 0 时顺序执行。
+func copyTree(ctx context.Context, srcLister *Lister,
+	srcBucket, srcPrefix, destBucket, destPrefix string,
+	concurrent int, desc string, copyFn objectCopyFn) *BatchCopyResult {
+
 	// 确保 srcPrefix 以 / 结尾表示目录
 	if srcPrefix != "" && !strings.HasSuffix(srcPrefix, "/") {
 		srcPrefix = srcPrefix + "/"
 	}
 
-	lister := NewLister(c.client)
-	objectCh := lister.ListObjectsStream(ctx, srcBucket, srcPrefix, true)
+	objectCh := srcLister.ListObjectsStream(ctx, srcBucket, srcPrefix, true)
 
 	batchResult := &BatchCopyResult{
 		SrcBucket:  srcBucket,
@@ -79,7 +85,19 @@ func (c *Copier) CopyDirectory(ctx context.Context, srcBucket, srcPrefix, destBu
 		DestPrefix: destPrefix,
 	}
 
-	bar := NewProgressBar(0, "复制中") // 初始总数为 0，流式增加
+	bar := NewProgressBar(0, desc) // 初始总数为 0，流式增加
+
+	// destKeyFor 计算目标对象名，返回 false 表示该对象应跳过
+	destKeyFor := func(srcKey string) (string, bool) {
+		relPath := strings.TrimPrefix(srcKey, srcPrefix)
+		if relPath == srcKey {
+			return "", false
+		}
+		if destPrefix == "" {
+			return relPath, true
+		}
+		return path.Join(destPrefix, relPath), true
+	}
 
 	if concurrent > 0 {
 		// 并发复制
@@ -102,14 +120,9 @@ func (c *Copier) CopyDirectory(ctx context.Context, srcBucket, srcPrefix, destBu
 				continue
 			}
 
-			// 计算目标路径
-			relPath := strings.TrimPrefix(result.Object.Key, srcPrefix)
-			if relPath == result.Object.Key {
+			destObject, ok := destKeyFor(result.Object.Key)
+			if !ok {
 				continue
-			}
-			destObject := path.Join(destPrefix, relPath)
-			if destPrefix == "" {
-				destObject = relPath
 			}
 
 			bar.AddTotal(1) // 动态增加总数
@@ -120,7 +133,7 @@ func (c *Copier) CopyDirectory(ctx context.Context, srcBucket, srcPrefix, destBu
 				sem <- struct{}{}
 				defer func() { <-sem }()
 
-				copyResult, err := c.CopyObject(ctx, srcBucket, srcKey, destBucket, dstKey)
+				copyResult, err := copyFn(ctx, srcKey, dstKey)
 
 				mu.Lock()
 				if err != nil {
@@ -155,18 +168,14 @@ func (c *Copier) CopyDirectory(ctx context.Context, srcBucket, srcPrefix, destBu
 				continue
 			}
 
-			relPath := strings.TrimPrefix(result.Object.Key, srcPrefix)
-			if relPath == result.Object.Key {
+			destObject, ok := destKeyFor(result.Object.Key)
+			if !ok {
 				continue
-			}
-			destObject := path.Join(destPrefix, relPath)
-			if destPrefix == "" {
-				destObject = relPath
 			}
 
 			bar.AddTotal(1)
 
-			copyResult, err := c.CopyObject(ctx, srcBucket, result.Object.Key, destBucket, destObject)
+			copyResult, err := copyFn(ctx, result.Object.Key, destObject)
 			if err != nil {
 				batchResult.Failed++
 				batchResult.Errors = append(batchResult.Errors, CopyError{
@@ -183,18 +192,12 @@ func (c *Copier) CopyDirectory(ctx context.Context, srcBucket, srcPrefix, destBu
 	}
 
 	bar.Done()
-	return batchResult, nil
+	return batchResult
 }
 
-// CopyDir 递归复制整个目录（CLI 直接输出）
-// concurrent 参数指定并发数，为 0 时逐个复制
-func (c *Copier) CopyDir(ctx context.Context, srcBucket, srcPrefix, destBucket, destPrefix string, concurrent int) {
-	result, err := c.CopyDirectory(ctx, srcBucket, srcPrefix, destBucket, destPrefix, concurrent)
-	if err != nil {
-		log.Fatalf("%v", err)
-	}
-
-	fmt.Printf("目录复制完成: %s/%s -> %s/%s\n", srcBucket, srcPrefix, destBucket, destPrefix)
+// printBatchCopyResult 输出批量复制结果（CLI）
+func printBatchCopyResult(result *BatchCopyResult, header string, concurrent int) {
+	fmt.Println(header)
 	if concurrent > 0 {
 		fmt.Printf("并发数: %d, ", concurrent)
 	}
@@ -206,6 +209,29 @@ func (c *Copier) CopyDir(ctx context.Context, srcBucket, srcPrefix, destBucket, 
 			fmt.Printf("  %s -> %s: %s\n", e.SrcKey, e.DstKey, e.Error)
 		}
 	}
+}
+
+// CopyDirectory 递归复制整个目录，返回结构化数据
+// 使用流式方式列出对象，边列出边复制
+// concurrent 参数指定并发数，为 0 时逐个复制
+func (c *Copier) CopyDirectory(ctx context.Context, srcBucket, srcPrefix, destBucket, destPrefix string, concurrent int) (*BatchCopyResult, error) {
+	copyFn := func(ctx context.Context, srcKey, dstKey string) (*CopyResult, error) {
+		return c.CopyObject(ctx, srcBucket, srcKey, destBucket, dstKey)
+	}
+	return copyTree(ctx, NewLister(c.client),
+		srcBucket, srcPrefix, destBucket, destPrefix, concurrent, "复制中", copyFn), nil
+}
+
+// CopyDir 递归复制整个目录（CLI 直接输出）
+// concurrent 参数指定并发数，为 0 时逐个复制
+func (c *Copier) CopyDir(ctx context.Context, srcBucket, srcPrefix, destBucket, destPrefix string, concurrent int) {
+	result, err := c.CopyDirectory(ctx, srcBucket, srcPrefix, destBucket, destPrefix, concurrent)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+
+	header := fmt.Sprintf("目录复制完成: %s/%s -> %s/%s", srcBucket, srcPrefix, destBucket, destPrefix)
+	printBatchCopyResult(result, header, concurrent)
 }
 
 // ==================== 分片复制（大文件） ====================
@@ -308,4 +334,91 @@ func calculatePartSize(objectSize int64) int64 {
 	}
 
 	return partSize
+}
+
+// ==================== 跨 context 复制（跨 endpoint） ====================
+
+// CrossCopier 跨 context（跨 endpoint）对象复制。
+// S3 服务端复制（x-amz-copy-source）只能在同一 endpoint 内进行，
+// 因此跨 endpoint 必须经本机流式中转：源端 GetObject -> 目标端 PutObject。
+type CrossCopier struct {
+	srcClient *minio.Client
+	dstClient *minio.Client
+}
+
+// NewCrossCopier 创建 CrossCopier
+func NewCrossCopier(srcClient, dstClient *minio.Client) *CrossCopier {
+	return &CrossCopier{srcClient: srcClient, dstClient: dstClient}
+}
+
+// CrossCopyObject 跨 endpoint 流式复制单个对象，返回结构化数据。
+// 数据不落盘：源端 reader 直接作为目标端 PutObject 的输入。
+// 由于传入了已知的对象大小，minio-go 会自动选择合适的分片大小，
+// 因此大文件无需额外处理，内存占用有界。
+// 复制完成后比对大小；跨 S3 实现 ETag 算法不可比，故不校验 ETag。
+func (c *CrossCopier) CrossCopyObject(ctx context.Context, srcBucket, srcObject, destBucket, destObject string) (*CopyResult, error) {
+	obj, err := c.srcClient.GetObject(ctx, srcBucket, srcObject, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("读取源对象失败: %w", err)
+	}
+	defer obj.Close()
+
+	srcInfo, err := obj.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("获取源对象信息失败: %w", err)
+	}
+
+	uploadInfo, err := c.dstClient.PutObject(ctx, destBucket, destObject, obj, srcInfo.Size,
+		minio.PutObjectOptions{
+			ContentType: srcInfo.ContentType,
+		})
+	if err != nil {
+		return nil, fmt.Errorf("写入目标对象失败: %w", err)
+	}
+
+	if uploadInfo.Size != srcInfo.Size {
+		return nil, fmt.Errorf("大小校验失败: 源 %d 字节，目标 %d 字节", srcInfo.Size, uploadInfo.Size)
+	}
+
+	return &CopyResult{
+		SrcBucket: srcBucket,
+		SrcKey:    srcObject,
+		DstBucket: destBucket,
+		DstKey:    destObject,
+		Size:      srcInfo.Size,
+		ETag:      uploadInfo.ETag,
+	}, nil
+}
+
+// CrossCopy 跨 endpoint 流式复制单个对象（CLI 直接输出）
+func (c *CrossCopier) CrossCopy(ctx context.Context, srcBucket, srcObject, destBucket, destObject string) {
+	result, err := c.CrossCopyObject(ctx, srcBucket, srcObject, destBucket, destObject)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+
+	fmt.Printf("跨 context 复制成功: %s/%s -> %s/%s (大小: %d 字节, ETag: %s)\n",
+		result.SrcBucket, result.SrcKey, result.DstBucket, result.DstKey, result.Size, result.ETag)
+}
+
+// CrossCopyDirectory 跨 endpoint 递归复制整个目录，返回结构化数据。
+// 列举使用源端 client，复制逐个走流式中转。
+// concurrent 参数指定并发数，为 0 时逐个复制。
+func (c *CrossCopier) CrossCopyDirectory(ctx context.Context, srcBucket, srcPrefix, destBucket, destPrefix string, concurrent int) (*BatchCopyResult, error) {
+	copyFn := func(ctx context.Context, srcKey, dstKey string) (*CopyResult, error) {
+		return c.CrossCopyObject(ctx, srcBucket, srcKey, destBucket, dstKey)
+	}
+	return copyTree(ctx, NewLister(c.srcClient),
+		srcBucket, srcPrefix, destBucket, destPrefix, concurrent, "跨 context 复制中", copyFn), nil
+}
+
+// CrossCopyDir 跨 endpoint 递归复制整个目录（CLI 直接输出）
+func (c *CrossCopier) CrossCopyDir(ctx context.Context, srcBucket, srcPrefix, destBucket, destPrefix string, concurrent int) {
+	result, err := c.CrossCopyDirectory(ctx, srcBucket, srcPrefix, destBucket, destPrefix, concurrent)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+
+	header := fmt.Sprintf("跨 context 目录复制完成: %s/%s -> %s/%s", srcBucket, srcPrefix, destBucket, destPrefix)
+	printBatchCopyResult(result, header, concurrent)
 }

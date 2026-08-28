@@ -35,6 +35,32 @@ func requirePath(path, cmdName string) error {
 	return nil
 }
 
+// parseTarget 解析 [context:]bucket/path 格式的参数。
+// 冒号只有出现在第一个 '/' 之前时才视为 context 分隔符，
+// 因此 "bucket/a:b.txt" 中的冒号属于对象名，不会被误判。
+// 返回的 ctxName 为空表示未指定 context（使用当前 context）。
+func parseTarget(target string) (ctxName, bucket, path string, err error) {
+	rest := target
+
+	colon := strings.Index(target, ":")
+	if colon >= 0 {
+		slash := strings.Index(target, "/")
+		if slash < 0 || colon < slash {
+			ctxName = target[:colon]
+			rest = target[colon+1:]
+			if ctxName == "" {
+				return "", "", "", fmt.Errorf("无效的路径格式: %s，context 名称不能为空", target)
+			}
+		}
+	}
+
+	bucket, path, err = parseBucketPath(rest)
+	if err != nil {
+		return "", "", "", err
+	}
+	return ctxName, bucket, path, nil
+}
+
 var (
 	configPath  string
 	contextName string
@@ -53,6 +79,19 @@ type ClientWrapper struct {
 // InitClient 由 main 包设置的初始化客户端回调函数
 // 返回 ClientWrapper、实际使用的 context 名称、错误
 var InitClient func(configPath, contextName string, debug bool) (*ClientWrapper, string, error)
+
+// clientForContext 返回指定 context 的 client。
+// name 为空或等于当前已初始化的 context 时，复用已有 client，避免重复建连。
+func clientForContext(name string) (*minio.Client, *minio.Core, error) {
+	if name == "" || name == usedContext {
+		return client, core, nil
+	}
+	wrapper, _, err := InitClient(configPath, name, debug)
+	if err != nil {
+		return nil, nil, fmt.Errorf("初始化 context %q 失败: %w", name, err)
+	}
+	return wrapper.Client, wrapper.Core, nil
+}
 
 // NewRootCmd 创建根命令
 func NewRootCmd() *cobra.Command {
@@ -372,32 +411,47 @@ func NewCopyCmd() *cobra.Command {
 	var concurrent int
 	var bigFile bool
 	cmd := &cobra.Command{
-		Use:   "copy src-bucket/src-object dest-bucket/dest-object",
-		Short: "复制对象或目录",
-		Long: `将对象或目录从一个位置复制到另一个位置，支持跨存储桶复制
+		Use:   "copy [ctx:]src-bucket/src-object [ctx:]dest-bucket/dest-object",
+		Short: "复制对象或目录（支持跨存储桶、跨 context）",
+		Long: `将对象或目录从一个位置复制到另一个位置，支持跨存储桶复制和跨 context（跨服务端）复制
 
 参数:
-  src-bucket/src-object   源存储桶和对象名称或目录前缀
-  dest-bucket/dest-object 目标存储桶和对象名称或目录前缀
+  [ctx:]src-bucket/src-object   源存储桶和对象名称或目录前缀，可选 context 前缀
+  [ctx:]dest-bucket/dest-object 目标存储桶和对象名称或目录前缀，可选 context 前缀
+
+  context 前缀用于跨服务端复制，省略时使用当前 context。
+  冒号只有出现在第一个 / 之前才被视为 context 分隔符，
+  因此 bucket/a:b.txt 中的冒号属于对象名。
 
 选项:
   -r, --recursive     递归复制整个目录
   -c, --concurrent    并发复制数量（仅与 -r 一起使用，默认 0 表示逐个复制）
-  -b, --big           大文件分片复制（用于超过 5GB 的文件）
+  -b, --big           大文件分片复制（用于超过 5GB 的文件，仅同 context 有效）
 
-示例:
+同 context 复制（服务端复制，数据不经过本机）:
   s3m copy my-bucket/file.txt my-bucket/copy.txt              # 复制单个对象
   s3m copy bucket1/photos/ bucket2/backup/photos/ -r          # 递归复制目录（逐个）
   s3m copy bucket1/photos/ bucket2/backup/photos/ -r -c 5     # 递归复制目录（5个并发）
-  s3m copy bucket1/large.dat bucket2/large-copy.dat -b        # 大文件分片复制`,
+  s3m copy bucket1/large.dat bucket2/large-copy.dat -b        # 大文件分片复制
+
+跨 context 复制（流式中转，数据经过本机）:
+  s3m copy prod:bucket1/file.txt dev:bucket2/file.txt         # 跨服务端复制单个对象
+  s3m copy bucket1/file.txt dev:bucket2/file.txt              # 源使用当前 context
+  s3m copy prod:bucket1/photos/ dev:bucket2/photos/ -r -c 5   # 跨服务端递归复制
+
+跨 context 限制:
+  - 仅保留 Content-Type，不复制自定义元数据、存储类别、标签、ACL
+  - 只校验对象大小，不校验 ETag（跨 S3 实现 ETag 算法不可比）
+  - 忽略 -b，分片由流式上传自动处理
+  - 失败需整个对象重传，不支持续传`,
 		Args: cobra.ExactArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {
-			srcBucket, srcObject, err := parseBucketPath(args[0])
+			srcCtx, srcBucket, srcObject, err := parseTarget(args[0])
 			if err != nil {
 				fmt.Println(err)
 				os.Exit(1)
 			}
-			destBucket, destObject, err := parseBucketPath(args[1])
+			destCtx, destBucket, destObject, err := parseTarget(args[1])
 			if err != nil {
 				fmt.Println(err)
 				os.Exit(1)
@@ -410,20 +464,56 @@ func NewCopyCmd() *cobra.Command {
 				fmt.Println(err)
 				os.Exit(1)
 			}
-			copier := operations.NewCopier(client, core)
 
+			// 按 context 名判定是否跨端。不比对 endpoint：
+			// 同 endpoint 不同凭据时，服务端复制会用目标凭据去读源 bucket，可能因权限失败。
+			if srcCtx == destCtx {
+				// 双方指定了同一个 context（或都未指定），走服务端复制。
+				// 注意必须按 srcCtx 取 client，因为它可能不是当前 context。
+				sameClient, sameCore, err := clientForContext(srcCtx)
+				if err != nil {
+					fmt.Println(err)
+					os.Exit(1)
+				}
+				copier := operations.NewCopier(sameClient, sameCore)
+				switch {
+				case recursive:
+					copier.CopyDir(cmd.Context(), srcBucket, srcObject, destBucket, destObject, concurrent)
+				case bigFile:
+					copier.MultipartCopy(cmd.Context(), srcBucket, srcObject, destBucket, destObject)
+				default:
+					copier.Copy(cmd.Context(), srcBucket, srcObject, destBucket, destObject)
+				}
+				return
+			}
+
+			// 跨 context：流式中转
+			srcClient, _, err := clientForContext(srcCtx)
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+			destClient, _, err := clientForContext(destCtx)
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+
+			if bigFile {
+				fmt.Println("提示: 跨 context 复制忽略 -b，分片由流式上传自动处理")
+			}
+
+			crossCopier := operations.NewCrossCopier(srcClient, destClient)
 			if recursive {
-				copier.CopyDir(cmd.Context(), srcBucket, srcObject, destBucket, destObject, concurrent)
-			} else if bigFile {
-				copier.MultipartCopy(cmd.Context(), srcBucket, srcObject, destBucket, destObject)
+				crossCopier.CrossCopyDir(cmd.Context(), srcBucket, srcObject, destBucket, destObject, concurrent)
 			} else {
-				copier.Copy(cmd.Context(), srcBucket, srcObject, destBucket, destObject)
+				crossCopier.CrossCopy(cmd.Context(), srcBucket, srcObject, destBucket, destObject)
 			}
 		},
 	}
 	cmd.Flags().BoolVarP(&recursive, "recursive", "r", false, "递归复制整个目录")
 	cmd.Flags().IntVarP(&concurrent, "concurrent", "c", 0, "并发复制数量（仅与 -r 一起使用）")
-	cmd.Flags().BoolVarP(&bigFile, "big", "b", false, "大文件分片复制")
+	cmd.Flags().BoolVarP(&bigFile, "big", "b", false, "大文件分片复制（仅同 context 有效）")
 	return cmd
 }
 
