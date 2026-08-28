@@ -6,7 +6,7 @@ S3M（S3 Mini Client）是 S3 对象存储协议的命令行客户端，支持�
 
 - **命令行模式**: 单次执行操作，适合脚本和自动化
 - **TUI 交互模式**: 基于 Bubble Tea 的终端用户界面，支持分屏布局、进度显示、历史记录
-- **多 context 管理**: 支持多个 S3 服务端 context（仿 kubectl config），可在运行时切换
+- **多 context 管理**: 支持多个 S3 服务端 context，可在运行时切换
 - **加密存储**: 敏感信息（accesskey/secretkey 合并）加密存储，更安全
 - **机器绑定**: 加密密钥基于本机 MAC/主机名/用户名派生，配置文件无法在其他机器解密
 
@@ -18,7 +18,7 @@ go build -o s3m
 
 ## Context 管理
 
-S3M 使用 context 管理多个 S3 服务端（仿 kubectl config context）。每个 context 保存一个服务端的 `endpoint / usessl / accesskey / secretkey`，其中 accesskey/secretkey 整体加密存储。
+S3M 使用 context 管理多个 S3 服务端。每个 context 保存一个服务端的 `endpoint / usessl / accesskey / secretkey`，其中 accesskey/secretkey 整体加密存储。
 
 ### 快速开始
 
@@ -168,11 +168,11 @@ s3m context import /tmp/my-plain.conf
 ### TUI 中的 context 切换
 
 - 启动时通过 `--context <name>` 指定，或使用 `current-context`
-- TUI 标题栏显示当前 context：`S3M Explorer [ctx: prod] - my-bucket/photos/`
+- TUI 标题栏显示当前 context / endpoint：`s3m v0.1.0  Profile: prod  Endpoint: s3.example.com`
 - 命令模式新增：
   - `use <name>`：临时切换（不落盘，退出后下次启动仍是原默认）
   - `set-default <name>`：切换并落盘（修改 current-context）
-- 快捷键 `u` 进入 `use` 模式
+- TUI 中使用 `:` 进入命令模式，执行 `use <name>` / `set-default <name>`
 
 ## 使用方式
 
@@ -184,51 +184,89 @@ s3m context import /tmp/my-plain.conf
 ./s3m
 ```
 
-**界面布局:**
+**界面布局：**
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│ S3M Explorer - bucket-name/prefix/                       F1:帮助 │
-├────────────────────────────────────────┬─────────────────────────┤
-│  Name                 Size    Modified │ 对象详情: file.txt      │
-│  📁 photos/                        -   │ 大小: 1.2 MB            │
-│  📄 file.txt          1.2 MB   01-15  │ 修改: 2024-01-15        │
-│  📄 data.json         15 KB    01-13  │ ETag: abc123            │
-├────────────────────────────────────────┴─────────────────────────┤
-│ > get file.txt                                                   │
-├──────────────────────────────────────────────────────────────────┤
-│ [↑↓]导航 [Enter]选择 [Backspace]返回 [:]命令 [r]刷新 [q]退出     │
-└──────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ s3m v0.1.0  Profile: default  Endpoint: s3.example.com               ? Help │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ Buckets (3)             │ Objects: my-bucket / projects/                    │
+│ ▶ my-bucket             │ ← ..                                              │
+│ ○ dev-assets            │ 📂 2024-08-20 10:00      0 B  images              │
+│ ○ logs                  │ 📄 2024-08-23 08:12   12.3 KiB style.css          │
+│                         │ [2/47]  Filter: css                               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [i] Meta │ [v] 预览 │ [u] 上传 │ [d] 下载 │ [x] 删除 │ [Space] 多选 │ [Tab] │
+│ Bucket: my-bucket │ Prefix: projects/ │ Total: 47 objects │ ctx: default    │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
+
+- 左侧 20% 为桶列表，右侧 80% 为对象浏览区
+- 标题栏显示版本、当前 context、S3 endpoint 与帮助入口
+- 对象区支持目录导航、过滤、Meta 弹窗、文本预览、上传/下载、删除、多选
+- 单文件上传/下载会在对象区底部显示真实字节进度、速率与 ETA
+- 终端低于 `80x24` 时会提示窗口过小
 
 **快捷键:**
 
 | 快捷键 | 说明 |
 |--------|------|
-| `↑` `↓` | 导航选择 |
-| `Enter` | 进入目录/查看详情 |
-| `Backspace` | 返回上级 |
+| `Tab` | 切换桶面板 / 对象面板焦点 |
+| `j` `k` / `↑` `↓` | 上下移动 |
+| `g` / `G` | 跳到顶部 / 底部 |
+| `Ctrl+D` / `Ctrl+U` | 向下 / 向上翻半页 |
+| `/` | 进入过滤模式，实时过滤对象名 |
+| `n` / `N` | 跳到下一个 / 上一个过滤结果 |
+| `?` | 打开帮助弹窗 |
 | `:` | 进入命令模式 |
-| `r` | 刷新列表 |
-| `h` | 查看历史 |
-| `u` | 切换 context |
-| `Tab` | 切换左右面板 |
-| `q` | 退出 |
+| `q` | 退出确认 |
+
+**桶面板：**
+
+| 快捷键 | 说明 |
+|--------|------|
+| `Enter` / `l` / `→` | 进入桶 |
+| `r` | 刷新桶列表 |
+
+**对象面板：**
+
+| 快捷键 | 说明 |
+|--------|------|
+| `Enter` / `l` / `→` | 进入目录 / 预览文本文件 |
+| `h` / `←` / `Backspace` | 返回上一级前缀 |
+| `~` | 回到桶根目录 |
+| `i` | 查看对象 Meta 信息 |
+| `v` | 预览文本文件 |
+| `u` / `U` | 上传文件 / 上传整个目录 |
+| `d` / `D` | 下载对象 / 递归下载目录 |
+| `x` / `X` | 删除当前对象 / 批量删除已选择对象 |
+| `Space` | 多选切换 |
+| `c` | 复制当前对象完整 Key 到剪贴板 |
+| `r` | 刷新当前对象列表 |
+
+**预览模式：**
+
+| 快捷键 | 说明 |
+|--------|------|
+| `Esc` / `q` | 关闭预览 |
+| `j` / `k` | 上下滚动 |
+| `Ctrl+D` / `Ctrl+U` | 翻页 |
+| `w` | 切换自动换行 |
 
 **命令模式命令:**
 
 | 命令 | 说明 | 示例 |
 |------|------|------|
-| `use <bucket>` | 切换 bucket | `use my-bucket` |
-| `cd <prefix>` | 切换目录 | `cd photos/` |
-| `ls [-r]` | 列出对象 | `ls`, `ls -r` |
-| `get <object>` | 下载对象 | `get file.txt` |
-| `put <file>` | 上传文件 | `put ./local.txt` |
-| `sign <object>` | 生成签名链接 | `sign file.txt` |
+| `cd <path>` | 跳转桶或前缀，`cd ..` 返回上一级 | `cd my-bucket`, `cd photos/` |
+| `ls` / `list` | 刷新当前列表 | `ls` |
+| `get <object>` | 下载对象到当前目录 | `get file.txt` |
+| `put <file> [object]` | 上传文件到当前前缀 | `put ./local.txt`, `put ./a.txt notes/a.txt` |
+| `sign <object>` | 生成预签名链接 | `sign file.txt` |
 | `use <name>` | 临时切换 context | `use dev` |
 | `set-default <name>` | 切换并落盘默认 context | `set-default prod` |
-| `history` | 查看操作历史 | `history` |
-| `exit` | 退出 | `exit` |
+| `history` | 查看操作历史弹窗 | `history` |
+| `help` | 打开帮助弹窗 | `help` |
+| `exit` / `quit` / `q` | 退出 TUI | `quit` |
 
 ### 命令行模式
 

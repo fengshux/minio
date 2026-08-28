@@ -31,6 +31,8 @@ func (s *Stater) GetObjectInfo(ctx context.Context, bucketName, objectName strin
 		LastModified: objInfo.LastModified,
 		ETag:         objInfo.ETag,
 		ContentType:  objInfo.ContentType,
+		StorageClass: objInfo.StorageClass,
+		Metadata:     objInfo.Metadata,
 	}, nil
 }
 

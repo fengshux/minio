@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"mime"
 	"os"
@@ -49,8 +50,10 @@ func (p *Putter) UploadObject(ctx context.Context, bucketName, objectName, local
 	}
 	defer file.Close()
 
+	reader := newProgressReader(file, fileInfo.Size(), progressCb)
+
 	// 上传对象
-	uploadInfo, err := p.client.PutObject(ctx, bucketName, objectName, file, fileInfo.Size(),
+	uploadInfo, err := p.client.PutObject(ctx, bucketName, objectName, reader, fileInfo.Size(),
 		minio.PutObjectOptions{
 			ContentType: contentType,
 		})
@@ -58,8 +61,7 @@ func (p *Putter) UploadObject(ctx context.Context, bucketName, objectName, local
 		return nil, fmt.Errorf("上传对象失败: %w", err)
 	}
 
-	// 如果有进度回调，模拟完成通知
-	if progressCb != nil {
+	if progressCb != nil && uploadInfo.Size >= fileInfo.Size() {
 		progressCb(fileInfo.Size(), fileInfo.Size())
 	}
 
@@ -192,6 +194,8 @@ func (p *Putter) UploadDirectory(ctx context.Context, bucketName, prefix, localD
 	bar.Done()
 	return batchResult, nil
 }
+
+var _ io.Reader = (*progressReader)(nil)
 
 // PutDir 递归上传本地目录到存储桶（CLI 直接输出）
 // concurrent 参数指定并发数，为 0 时逐个上传

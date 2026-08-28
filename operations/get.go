@@ -37,15 +37,21 @@ func (g *Getter) DownloadObject(ctx context.Context, bucketName, objectName, out
 		return nil, fmt.Errorf("获取对象信息失败: %w", err)
 	}
 
-	// 下载对象
-	err = g.client.FGetObject(ctx, bucketName, objectName, outputPath, minio.GetObjectOptions{})
+	object, err := g.client.GetObject(ctx, bucketName, objectName, minio.GetObjectOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("下载对象失败: %w", err)
+		return nil, fmt.Errorf("获取对象失败: %w", err)
 	}
+	defer object.Close()
 
-	// 如果有进度回调，模拟完成通知
-	if progressCb != nil {
-		progressCb(info.Size, info.Size)
+	file, err := os.Create(outputPath)
+	if err != nil {
+		return nil, fmt.Errorf("创建本地文件失败: %w", err)
+	}
+	defer file.Close()
+
+	writer := newProgressWriter(file, info.Size, progressCb)
+	if _, err = io.Copy(writer, object); err != nil {
+		return nil, fmt.Errorf("下载对象失败: %w", err)
 	}
 
 	return &DownloadResult{

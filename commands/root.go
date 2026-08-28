@@ -101,7 +101,7 @@ func NewRootCmd() *cobra.Command {
 		Long: `S3M（S3 Mini Client）是 S3 对象存储协议的命令行客户端，支持列出、查询、下载对象等操作
 
 Context 管理:
-  使用 's3m context' 子命令管理多个服务端（仿 kubectl config context）。
+  使用 's3m context' 子命令管理多个服务端。
   启动时可通过 --context 指定 context，否则使用 current-context。
   每个 context 的 accesskey/secretkey 加密存储在配置文件中。`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
